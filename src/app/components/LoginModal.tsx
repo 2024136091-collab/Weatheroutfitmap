@@ -5,32 +5,6 @@ import { useAuth } from '../contexts/AuthContext';
 
 const API = 'http://localhost:3001';
 
-// ── 카카오 SDK 타입 선언 ──
-declare global {
-  interface Window {
-    Kakao: {
-      init: (key: string) => void;
-      isInitialized: () => boolean;
-      Auth: {
-        login: (options: { success: (res: { access_token: string }) => void; fail: (err: unknown) => void }) => void;
-      };
-    };
-  }
-}
-
-const KAKAO_JS_KEY = 'YOUR_KAKAO_JAVASCRIPT_KEY'; // 카카오 JavaScript 키 입력
-const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID';  // Google 클라이언트 ID 입력 (main.tsx에서도 설정)
-
-function loadKakaoSdk(): Promise<void> {
-  return new Promise(resolve => {
-    if (window.Kakao) { resolve(); return; }
-    const script = document.createElement('script');
-    script.src = 'https://developers.kakao.com/sdk/js/kakao.js';
-    script.onload = () => resolve();
-    document.head.appendChild(script);
-  });
-}
-
 interface Props {
   onClose: () => void;
 }
@@ -68,29 +42,6 @@ export function LoginModal({ onClose }: Props) {
       setError('서버에 연결할 수 없습니다');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleKakao = async () => {
-    try {
-      await loadKakaoSdk();
-      if (!window.Kakao.isInitialized()) window.Kakao.init(KAKAO_JS_KEY);
-      window.Kakao.Auth.login({
-        success: async ({ access_token }) => {
-          const res = await fetch(`${API}/auth/social/kakao`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ accessToken: access_token }),
-          });
-          const data = await res.json();
-          if (!res.ok) { setError(data.error); return; }
-          login(data.token, data.user);
-          onClose();
-        },
-        fail: () => setError('카카오 로그인에 실패했습니다'),
-      });
-    } catch {
-      setError('카카오 SDK 로드에 실패했습니다');
     }
   };
 
@@ -193,35 +144,17 @@ export function LoginModal({ onClose }: Props) {
           <div className="flex-1 h-px bg-slate-100" />
         </div>
 
-        {/* 소셜 로그인 */}
-        <div className="space-y-2">
-          {/* 카카오 */}
-          <button
-            onClick={handleKakao}
-            className="w-full flex items-center justify-center gap-2 py-3 bg-[#FEE500] hover:bg-[#F5DC00] text-[#3C1E1E] rounded-xl text-sm font-medium transition"
-          >
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-              <path fillRule="evenodd" clipRule="evenodd"
-                d="M9 1C4.582 1 1 3.896 1 7.455c0 2.285 1.52 4.29 3.818 5.408L3.9 16.3a.3.3 0 0 0 .456.316L8.4 13.88a9.8 9.8 0 0 0 .6.027c4.418 0 8-2.895 8-6.452C17 3.896 13.418 1 9 1Z"
-                fill="#3C1E1E"/>
-            </svg>
-            카카오로 로그인
-          </button>
-
-          {/* 구글 */}
-          <div className="flex justify-center">
-            <GoogleLogin
-              onSuccess={({ credential }) => credential && handleGoogle(credential)}
-              onError={() => setError('구글 로그인에 실패했습니다')}
-              width="100%"
-              text={tab === 'login' ? 'signin_with' : 'signup_with'}
-              locale="ko"
-            />
-          </div>
+        {/* 구글 로그인 */}
+        <div className="flex justify-center">
+          <GoogleLogin
+            onSuccess={({ credential }) => credential && handleGoogle(credential)}
+            onError={() => setError('구글 로그인에 실패했습니다')}
+            width="100%"
+            text={tab === 'login' ? 'signin_with' : 'signup_with'}
+            locale="ko"
+          />
         </div>
       </div>
     </div>
   );
 }
-
-export { GOOGLE_CLIENT_ID };

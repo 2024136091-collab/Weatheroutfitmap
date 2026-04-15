@@ -51,13 +51,18 @@ async function initDB() {
         email       VARCHAR(255) NOT NULL,
         password    VARCHAR(255),
         username    VARCHAR(100) NOT NULL,
-        provider    ENUM('local','kakao','google') NOT NULL DEFAULT 'local',
+        provider    ENUM('local','google') NOT NULL DEFAULT 'local',
         provider_id VARCHAR(255),
         created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uq_email (email),
         UNIQUE KEY uq_provider (provider, provider_id)
       )
     `);
+    // 기존 테이블 provider enum이 다를 경우 업데이트
+    await conn.execute(`
+      ALTER TABLE users
+        MODIFY COLUMN provider ENUM('local','google') NOT NULL DEFAULT 'local'
+    `).catch(() => {});
     console.log('DB 테이블 초기화 완료');
   } finally {
     conn.release();
@@ -123,38 +128,6 @@ app.post('/auth/login', asyncHandler(async (req, res) => {
   const user = rows[0];
   const ok = await bcrypt.compare(password, user.password);
   if (!ok) return res.status(401).json({ error: '이메일 또는 비밀번호가 올바르지 않습니다' });
-
-  const token = issueToken(user);
-  res.json({ token, user: { id: user.id, email: user.email, username: user.username } });
-}));
-
-// 카카오 소셜 로그인
-app.post('/auth/social/kakao', asyncHandler(async (req, res) => {
-  const { accessToken } = req.body;
-  if (!accessToken) return res.status(400).json({ error: '카카오 토큰이 필요합니다' });
-
-  const { data } = await axios.get('https://kapi.kakao.com/v2/user/me', {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-
-  const providerId = String(data.id);
-  const email = data.kakao_account?.email || `kakao_${providerId}@kakao.com`;
-  const username = data.properties?.nickname || '카카오 사용자';
-
-  const [rows] = await pool.execute(
-    'SELECT * FROM users WHERE provider = "kakao" AND provider_id = ?', [providerId]
-  );
-
-  let user;
-  if (rows.length) {
-    user = rows[0];
-  } else {
-    const [result] = await pool.execute(
-      'INSERT INTO users (email, username, provider, provider_id) VALUES (?, ?, "kakao", ?)',
-      [email, username, providerId]
-    );
-    user = { id: result.insertId, email, username };
-  }
 
   const token = issueToken(user);
   res.json({ token, user: { id: user.id, email: user.email, username: user.username } });
