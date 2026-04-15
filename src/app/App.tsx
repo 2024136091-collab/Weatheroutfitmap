@@ -105,7 +105,7 @@ export default function App() {
               isFavorite={isFavorite(currentCityKey)}
               onToggleFavorite={() => toggleFavorite(currentCityKey, weather.city)}
             />
-            <OutfitCard weather={weather} todayPrecipProb={todayPrecipProb} todayUvIndex={todayUvIndex} />
+            <OutfitCard weather={weather} todayPrecipProb={todayPrecipProb} todayUvIndex={todayUvIndex} onLoginRequest={() => setShowLogin(true)} />
             <LivingIndexCard weather={weather} uvIndex={todayUvIndex} precipProb={todayPrecipProb} />
             <ForecastCard forecast={forecast} />
           </>

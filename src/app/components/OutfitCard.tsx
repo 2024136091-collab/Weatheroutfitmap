@@ -1,7 +1,8 @@
 import { useState, useRef } from 'react';
-import { Sparkles, Loader2, RefreshCw } from 'lucide-react';
+import { Sparkles, Loader2, RefreshCw, LogIn } from 'lucide-react';
 import type { WeatherData } from '../types/weather';
 import { streamAiOutfit } from '../utils/api';
+import { useAuth } from '../contexts/AuthContext';
 
 interface OutfitItem {
   emoji: string;
@@ -97,15 +98,17 @@ interface Props {
   weather: WeatherData;
   todayPrecipProb?: number;
   todayUvIndex?: number;
+  onLoginRequest?: () => void;
 }
 
-export function OutfitCard({ weather, todayPrecipProb, todayUvIndex }: Props) {
+export function OutfitCard({ weather, todayPrecipProb, todayUvIndex, onLoginRequest }: Props) {
   const { title, items, extras, tip } = getOutfit(
     weather.temperature,
     weather.condition,
     weather.humidity,
     weather.windSpeed
   );
+  const { user } = useAuth();
 
   const [aiText, setAiText] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
@@ -113,6 +116,10 @@ export function OutfitCard({ weather, todayPrecipProb, todayUvIndex }: Props) {
   const abortRef = useRef<AbortController | null>(null);
 
   const handleAiRequest = async () => {
+    if (!user) {
+      onLoginRequest?.();
+      return;
+    }
     if (aiLoading) {
       abortRef.current?.abort();
       return;
@@ -191,12 +198,19 @@ export function OutfitCard({ weather, todayPrecipProb, todayUvIndex }: Props) {
         <button
           onClick={handleAiRequest}
           className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition
-            ${aiLoading
-              ? 'bg-purple-50 text-purple-400 border border-purple-200'
-              : 'bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 text-white shadow-sm'
+            ${!user
+              ? 'bg-slate-50 border border-slate-200 text-slate-400 hover:bg-slate-100'
+              : aiLoading
+                ? 'bg-purple-50 text-purple-400 border border-purple-200'
+                : 'bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 text-white shadow-sm'
             }`}
         >
-          {aiLoading ? (
+          {!user ? (
+            <>
+              <LogIn className="w-4 h-4" />
+              로그인 후 AI 코디 추천 받기
+            </>
+          ) : aiLoading ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
               AI가 추천 중...
