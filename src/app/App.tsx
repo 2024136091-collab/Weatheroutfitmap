@@ -14,7 +14,7 @@ import { useAuth } from './contexts/AuthContext';
 
 export default function App() {
   const { weather, forecast, todayUvIndex, todayPrecipProb, loading, error, search, searchByLocation } = useWeather();
-  const { history, favorites, saveHistory, deleteHistory, toggleFavorite, deleteFavorite, isFavorite } = useStorage();
+  const { history, favorites, saveHistory, deleteHistory, deleteHistoryOne, toggleFavorite, deleteFavorite, deleteAllFavorites, isFavorite } = useStorage();
   const { user } = useAuth();
   const [showLogin, setShowLogin] = useState(false);
   const [showMyPage, setShowMyPage] = useState(false);
@@ -73,6 +73,8 @@ export default function App() {
             onClose={() => setShowMyPage(false)}
             onSelectCity={handleSearch}
             onRemoveFavorite={deleteFavorite}
+            onClearFavorites={deleteAllFavorites}
+            onDeleteHistory={deleteHistoryOne}
             onClearHistory={deleteHistory}
           />
         )}
@@ -103,7 +105,7 @@ export default function App() {
               isFavorite={isFavorite(currentCityKey)}
               onToggleFavorite={() => toggleFavorite(currentCityKey, weather.city)}
             />
-            <OutfitCard weather={weather} />
+            <OutfitCard weather={weather} todayPrecipProb={todayPrecipProb} todayUvIndex={todayUvIndex} />
             <LivingIndexCard weather={weather} uvIndex={todayUvIndex} precipProb={todayPrecipProb} />
             <ForecastCard forecast={forecast} />
           </>
@@ -116,6 +118,7 @@ export default function App() {
             history={history}
             onSelect={handleSearch}
             onRemoveFavorite={deleteFavorite}
+            onDeleteHistory={deleteHistoryOne}
             onClearHistory={deleteHistory}
             onToggleFavorite={toggleFavorite}
             isFavorite={isFavorite}

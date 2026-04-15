@@ -73,15 +73,22 @@ export async function fetchWeatherByCoords(lat: number, lon: number): Promise<We
 export async function fetchWeatherData(city: string): Promise<WeatherData> {
   const { lat, lon } = await geocodeCity(city);
 
-  const res = await fetch(
-    `${BASE_URL}/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric&lang=kr`
-  );
+  const [res, district] = await Promise.all([
+    fetch(`${BASE_URL}/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric&lang=kr`),
+    reverseGeocodeKo(lat, lon),
+  ]);
   if (!res.ok) throw new Error('날씨 정보를 가져올 수 없습니다');
 
   const d = await res.json();
+
+  if (d.sys.country !== 'KR') {
+    throw new Error('국내 도시만 검색할 수 있습니다');
+  }
+
   return {
     city: d.name,
     country: d.sys.country,
+    district,
     temperature: d.main.temp,
     feelsLike: d.main.feels_like,
     description: d.weather[0].description,

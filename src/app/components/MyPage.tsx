@@ -8,10 +8,12 @@ interface Props {
   onClose: () => void;
   onSelectCity: (city: string) => void;
   onRemoveFavorite: (id: number) => void;
+  onClearFavorites: () => void;
+  onDeleteHistory: (id: number) => void;
   onClearHistory: () => void;
 }
 
-export function MyPage({ favorites, history, onClose, onSelectCity, onRemoveFavorite, onClearHistory }: Props) {
+export function MyPage({ favorites, history, onClose, onSelectCity, onRemoveFavorite, onClearFavorites, onDeleteHistory, onClearHistory }: Props) {
   const { user, logout } = useAuth();
 
   const handleLogout = () => {
@@ -54,9 +56,19 @@ export function MyPage({ favorites, history, onClose, onSelectCity, onRemoveFavo
 
           {/* 즐겨찾기 */}
           <section>
-            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3 flex items-center gap-1">
-              <Star className="w-3 h-3" /> 즐겨찾기 {favorites.length > 0 && `(${favorites.length})`}
-            </h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide flex items-center gap-1">
+                <Star className="w-3 h-3" /> 즐겨찾기 {favorites.length > 0 && `(${favorites.length})`}
+              </h3>
+              {favorites.length > 0 && (
+                <button
+                  onClick={onClearFavorites}
+                  className="text-xs text-slate-400 hover:text-red-400 flex items-center gap-0.5 transition"
+                >
+                  <Trash2 className="w-3 h-3" /> 전체 삭제
+                </button>
+              )}
+            </div>
             {favorites.length === 0 ? (
               <p className="text-sm text-slate-300 text-center py-4">즐겨찾기한 도시가 없어요</p>
             ) : (
@@ -106,13 +118,21 @@ export function MyPage({ favorites, history, onClose, onSelectCity, onRemoveFavo
             ) : (
               <div className="flex flex-wrap gap-2">
                 {history.map(h => (
-                  <button
-                    key={h.id}
-                    onClick={() => handleCity(h.city)}
-                    className="text-sm bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-full px-3 py-1.5 transition"
-                  >
-                    {h.city.replace(',KR', '')}
-                  </button>
+                  <div key={h.id} className="relative group flex items-center">
+                    <button
+                      onClick={() => handleCity(h.city)}
+                      className="text-sm bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-full pl-3 pr-7 py-1.5 transition"
+                    >
+                      {h.city.replace(',KR', '')}
+                    </button>
+                    <button
+                      onClick={() => onDeleteHistory(h.id)}
+                      className="absolute right-2 text-slate-300 hover:text-red-400 transition"
+                      aria-label="삭제"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
                 ))}
               </div>
             )}

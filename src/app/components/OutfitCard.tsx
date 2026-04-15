@@ -1,4 +1,7 @@
+import { useState, useRef } from 'react';
+import { Sparkles, Loader2, RefreshCw } from 'lucide-react';
 import type { WeatherData } from '../types/weather';
+import { streamAiOutfit } from '../utils/api';
 
 interface OutfitItem {
   emoji: string;
@@ -92,15 +95,58 @@ function getOutfit(temp: number, condition: string, humidity: number, windSpeed:
 
 interface Props {
   weather: WeatherData;
+  todayPrecipProb?: number;
+  todayUvIndex?: number;
 }
 
-export function OutfitCard({ weather }: Props) {
+export function OutfitCard({ weather, todayPrecipProb, todayUvIndex }: Props) {
   const { title, items, extras, tip } = getOutfit(
     weather.temperature,
     weather.condition,
     weather.humidity,
     weather.windSpeed
   );
+
+  const [aiText, setAiText] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState('');
+  const abortRef = useRef<AbortController | null>(null);
+
+  const handleAiRequest = async () => {
+    if (aiLoading) {
+      abortRef.current?.abort();
+      return;
+    }
+    setAiText('');
+    setAiError('');
+    setAiLoading(true);
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+
+    try {
+      await streamAiOutfit(
+        {
+          city: weather.city,
+          temperature: weather.temperature,
+          feelsLike: weather.feelsLike,
+          condition: weather.condition,
+          description: weather.description,
+          humidity: weather.humidity,
+          windSpeed: weather.windSpeed,
+          precipProb: todayPrecipProb,
+          uvIndex: todayUvIndex,
+        },
+        chunk => setAiText(prev => prev + chunk),
+        ctrl.signal
+      );
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name !== 'AbortError') {
+        setAiError('AI 추천을 불러올 수 없습니다. 서버 연결을 확인해 주세요.');
+      }
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   return (
     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
@@ -139,6 +185,48 @@ export function OutfitCard({ weather }: Props) {
 
       {/* 팁 */}
       <p className="text-xs text-slate-500 mt-3 leading-relaxed">💡 {tip}</p>
+
+      {/* AI 추천 버튼 */}
+      <div className="mt-4 pt-4 border-t border-slate-100">
+        <button
+          onClick={handleAiRequest}
+          className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition
+            ${aiLoading
+              ? 'bg-purple-50 text-purple-400 border border-purple-200'
+              : 'bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 text-white shadow-sm'
+            }`}
+        >
+          {aiLoading ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              AI가 추천 중...
+            </>
+          ) : aiText ? (
+            <>
+              <RefreshCw className="w-4 h-4" />
+              AI 추천 다시 받기
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-4 h-4" />
+              AI 코디 추천 받기
+            </>
+          )}
+        </button>
+
+        {/* AI 응답 */}
+        {aiError && (
+          <p className="mt-3 text-xs text-red-500">{aiError}</p>
+        )}
+        {(aiText || aiLoading) && !aiError && (
+          <div className="mt-3 bg-purple-50 rounded-xl p-4">
+            <p className="text-xs text-purple-700 leading-relaxed whitespace-pre-wrap">
+              {aiText}
+              {aiLoading && <span className="inline-block w-1 h-3 ml-0.5 bg-purple-400 animate-pulse rounded-sm" />}
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

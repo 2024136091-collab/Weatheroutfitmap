@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  getHistory, addHistory, clearHistory,
-  getFavorites, addFavorite, removeFavorite,
+  getHistory, addHistory, clearHistory, deleteHistoryItem,
+  getFavorites, addFavorite, removeFavorite, clearFavorites,
   type HistoryItem, type FavoriteItem,
 } from '../utils/api';
 
@@ -40,6 +40,15 @@ export function useStorage() {
     }
   }, []);
 
+  const deleteHistoryOne = useCallback(async (id: number) => {
+    try {
+      await deleteHistoryItem(id);
+      setHistory(prev => prev.filter(h => h.id !== id));
+    } catch {
+      // 서버 미연결 시 무시
+    }
+  }, []);
+
   const toggleFavorite = useCallback(async (city: string, displayName: string) => {
     const existing = favorites.find(f => f.city === city);
     try {
@@ -64,9 +73,18 @@ export function useStorage() {
     }
   }, []);
 
+  const deleteAllFavorites = useCallback(async () => {
+    try {
+      await clearFavorites();
+      setFavorites([]);
+    } catch {
+      // 서버 미연결 시 무시
+    }
+  }, []);
+
   const isFavorite = useCallback((city: string) => {
     return favorites.some(f => f.city === city);
   }, [favorites]);
 
-  return { history, favorites, ready, saveHistory, deleteHistory, toggleFavorite, deleteFavorite, isFavorite };
+  return { history, favorites, ready, saveHistory, deleteHistory, deleteHistoryOne, toggleFavorite, deleteFavorite, deleteAllFavorites, isFavorite };
 }
