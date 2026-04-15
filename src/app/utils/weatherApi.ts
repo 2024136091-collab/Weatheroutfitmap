@@ -57,7 +57,7 @@ export async function fetchWeatherByCoords(lat: number, lon: number): Promise<We
   const d = await weatherRes.json();
   return {
     city: d.name,
-    country: d.sys.country,
+    country: d.sys.country === 'KR' ? '대한민국' : d.sys.country,
     district,
     temperature: d.main.temp,
     feelsLike: d.main.feels_like,
@@ -71,7 +71,7 @@ export async function fetchWeatherByCoords(lat: number, lon: number): Promise<We
 }
 
 export async function fetchWeatherData(city: string): Promise<WeatherData> {
-  const { lat, lon } = await geocodeCity(city);
+  const { lat, lon, name: koName } = await geocodeCity(city);
 
   const [res, district] = await Promise.all([
     fetch(`${BASE_URL}/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric&lang=kr`),
@@ -86,8 +86,8 @@ export async function fetchWeatherData(city: string): Promise<WeatherData> {
   }
 
   return {
-    city: d.name,
-    country: d.sys.country,
+    city: koName || d.name,
+    country: '대한민국',
     district,
     temperature: d.main.temp,
     feelsLike: d.main.feels_like,

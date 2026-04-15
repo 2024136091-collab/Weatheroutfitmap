@@ -57,6 +57,7 @@ interface Props {
 
 export function CityGrid({ favorites, history, onSelect, onRemoveFavorite, onDeleteHistory, onClearHistory, onToggleFavorite, isFavorite }: Props) {
   const [cityWeathers, setCityWeathers] = useState<Record<string, CityWeather>>({});
+  const [favWeathers, setFavWeathers] = useState<Record<string, CityWeather>>({});
   const [query, setQuery] = useState('');
 
   useEffect(() => {
@@ -70,6 +71,18 @@ export function CityGrid({ favorites, history, onSelect, onRemoveFavorite, onDel
     });
   }, []);
 
+  useEffect(() => {
+    favorites.forEach(f => {
+      if (favWeathers[f.city]) return;
+      fetchWeatherData(f.city)
+        .then(w => setFavWeathers(prev => ({
+          ...prev,
+          [f.city]: { temp: Math.round(w.temperature), condition: w.condition, description: w.description },
+        })))
+        .catch(() => {});
+    });
+  }, [favorites]);
+
   return (
     <div className="space-y-5">
       {/* 즐겨찾기 */}
@@ -78,28 +91,45 @@ export function CityGrid({ favorites, history, onSelect, onRemoveFavorite, onDel
           <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1">
             <Star className="w-3 h-3" /> 즐겨찾기
           </h3>
-          <div className="grid grid-cols-5 gap-2">
-            {favorites.map(f => (
-              <div
-                key={f.id}
-                className="relative flex flex-col items-center gap-1 bg-amber-50 border border-amber-200 rounded-xl py-3 px-1 shadow-sm hover:border-amber-400 hover:bg-amber-100 transition group"
-              >
-                <button
-                  onClick={() => onRemoveFavorite(f.id)}
-                  className="absolute top-1 right-1 text-amber-300 hover:text-red-400 transition opacity-0 group-hover:opacity-100"
-                  aria-label="즐겨찾기 삭제"
+          <div className="grid grid-cols-3 gap-2">
+            {favorites.map(f => {
+              const w = favWeathers[f.city];
+              const colorClass = WEATHER_COLOR[w?.condition ?? ''] ?? 'bg-amber-50 border-amber-200 hover:border-amber-400 hover:bg-amber-100';
+              return (
+                <div
+                  key={f.id}
+                  className={`relative flex flex-col border rounded-xl p-3 shadow-sm transition group ${colorClass}`}
                 >
-                  <X className="w-3 h-3" />
-                </button>
-                <button
-                  onClick={() => onSelect(f.city)}
-                  className="flex flex-col items-center gap-1 text-amber-800 hover:text-amber-600 text-xs font-medium w-full"
-                >
-                  <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
-                  {f.displayName}
-                </button>
-              </div>
-            ))}
+                  {/* 삭제 버튼 */}
+                  <button
+                    onClick={() => onRemoveFavorite(f.id)}
+                    className="absolute top-2 right-2 text-slate-300 hover:text-red-400 transition opacity-0 group-hover:opacity-100"
+                    aria-label="즐겨찾기 삭제"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+
+                  {/* 도시 정보 */}
+                  <button
+                    onClick={() => onSelect(f.city)}
+                    className="flex flex-col gap-1 text-left w-full"
+                  >
+                    <div className="text-xl leading-none">
+                      {w ? (WEATHER_EMOJI[w.condition] ?? '🌡️') : '⭐'}
+                    </div>
+                    <div className="font-semibold text-slate-800 text-sm mt-1">{f.displayName}</div>
+                    {w ? (
+                      <>
+                        <div className="text-lg font-bold text-slate-700 mt-0.5">{w.temp}°</div>
+                        <div className="text-xs text-slate-500 truncate">{w.description}</div>
+                      </>
+                    ) : (
+                      <div className="text-xs text-slate-300 mt-1">불러오는 중...</div>
+                    )}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </section>
       )}
