@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Loader2, AlertCircle, LogIn, LogOut, User } from 'lucide-react';
+import { Loader2, AlertCircle, LogIn, User } from 'lucide-react';
 import { useWeather } from './hooks/useWeather';
 import { useStorage } from './hooks/useStorage';
 import { SearchBar } from './components/SearchBar';
@@ -9,13 +9,15 @@ import { OutfitCard } from './components/OutfitCard';
 import { LivingIndexCard } from './components/LivingIndexCard';
 import { CityGrid } from './components/CityGrid';
 import { LoginModal } from './components/LoginModal';
+import { MyPage } from './components/MyPage';
 import { useAuth } from './contexts/AuthContext';
 
 export default function App() {
   const { weather, forecast, todayUvIndex, todayPrecipProb, loading, error, search, searchByLocation } = useWeather();
   const { history, favorites, saveHistory, deleteHistory, toggleFavorite, deleteFavorite, isFavorite } = useStorage();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const [showLogin, setShowLogin] = useState(false);
+  const [showMyPage, setShowMyPage] = useState(false);
 
   useEffect(() => {
     search('Seoul,KR');
@@ -43,16 +45,12 @@ export default function App() {
             </div>
             {user ? (
               <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1.5 bg-blue-50 text-blue-700 text-xs font-medium px-3 py-1.5 rounded-full">
+                <button
+                  onClick={() => setShowMyPage(true)}
+                  className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-medium px-3 py-1.5 rounded-full transition"
+                >
                   <User className="w-3.5 h-3.5" />
                   {user.username}
-                </div>
-                <button
-                  onClick={logout}
-                  className="p-2 text-slate-400 hover:text-slate-600 transition"
-                  title="로그아웃"
-                >
-                  <LogOut className="w-4 h-4" />
                 </button>
               </div>
             ) : (
@@ -68,6 +66,16 @@ export default function App() {
         </header>
 
         {showLogin && <LoginModal onClose={() => setShowLogin(false)} />}
+        {showMyPage && (
+          <MyPage
+            favorites={favorites}
+            history={history}
+            onClose={() => setShowMyPage(false)}
+            onSelectCity={handleSearch}
+            onRemoveFavorite={deleteFavorite}
+            onClearHistory={deleteHistory}
+          />
+        )}
 
         {/* 검색바 */}
         <SearchBar onSearch={handleSearch} onLocate={searchByLocation} loading={loading} />

@@ -33,21 +33,25 @@ export function CityGrid({ favorites, history, onSelect, onRemoveFavorite, onCle
           <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1">
             <Star className="w-3 h-3" /> 즐겨찾기
           </h3>
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-5 gap-2">
             {favorites.map(f => (
-              <div key={f.id} className="flex items-center gap-1 bg-amber-50 border border-amber-200 rounded-full pl-3 pr-1.5 py-1.5">
-                <button
-                  onClick={() => onSelect(f.city)}
-                  className="text-sm text-amber-800 hover:text-amber-600 transition"
-                >
-                  {f.displayName}
-                </button>
+              <div
+                key={f.id}
+                className="relative flex flex-col items-center gap-1 bg-amber-50 border border-amber-200 rounded-xl py-3 px-1 shadow-sm hover:border-amber-400 hover:bg-amber-100 transition group"
+              >
                 <button
                   onClick={() => onRemoveFavorite(f.id)}
-                  className="text-amber-400 hover:text-red-400 transition"
+                  className="absolute top-1 right-1 text-amber-300 hover:text-red-400 transition opacity-0 group-hover:opacity-100"
                   aria-label="즐겨찾기 삭제"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <X className="w-3 h-3" />
+                </button>
+                <button
+                  onClick={() => onSelect(f.city)}
+                  className="flex flex-col items-center gap-1 text-amber-800 hover:text-amber-600 text-xs font-medium w-full"
+                >
+                  <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+                  {f.displayName}
                 </button>
               </div>
             ))}
