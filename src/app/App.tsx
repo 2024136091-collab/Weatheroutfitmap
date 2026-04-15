@@ -109,6 +109,8 @@ export default function App() {
             onSelect={handleSearch}
             onRemoveFavorite={deleteFavorite}
             onClearHistory={deleteHistory}
+            onToggleFavorite={toggleFavorite}
+            isFavorite={isFavorite}
           />
         )}
 

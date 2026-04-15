@@ -20,9 +20,11 @@ interface Props {
   onSelect: (city: string) => void;
   onRemoveFavorite: (id: number) => void;
   onClearHistory: () => void;
+  onToggleFavorite: (city: string, displayName: string) => void;
+  isFavorite: (city: string) => boolean;
 }
 
-export function CityGrid({ favorites, history, onSelect, onRemoveFavorite, onClearHistory }: Props) {
+export function CityGrid({ favorites, history, onSelect, onRemoveFavorite, onClearHistory, onToggleFavorite, isFavorite }: Props) {
   return (
     <div className="space-y-5">
       {/* 즐겨찾기 */}
@@ -88,16 +90,26 @@ export function CityGrid({ favorites, history, onSelect, onRemoveFavorite, onCle
         </h3>
         <div className="grid grid-cols-5 gap-2">
           {QUICK_CITIES.map(c => (
-            <button
+            <div
               key={c.city}
-              onClick={() => onSelect(c.city)}
-              className="flex flex-col items-center gap-1 bg-white border border-slate-200 rounded-xl py-3 px-1
-                         hover:border-blue-300 hover:bg-blue-50 text-slate-700 hover:text-blue-700
-                         shadow-sm transition text-xs font-medium"
+              className="relative flex flex-col items-center gap-1 bg-white border border-slate-200 rounded-xl py-3 px-1
+                         hover:border-blue-300 hover:bg-blue-50 shadow-sm transition group"
             >
-              <MapPin className="w-4 h-4 text-slate-400" />
-              {c.name}
-            </button>
+              <button
+                onClick={() => onToggleFavorite(c.city, c.name)}
+                className={`absolute top-1 right-1 transition ${isFavorite(c.city) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                aria-label={isFavorite(c.city) ? '즐겨찾기 해제' : '즐겨찾기 추가'}
+              >
+                <Star className={`w-3 h-3 ${isFavorite(c.city) ? 'fill-amber-400 text-amber-400' : 'text-slate-300'}`} />
+              </button>
+              <button
+                onClick={() => onSelect(c.city)}
+                className="flex flex-col items-center gap-1 text-slate-700 group-hover:text-blue-700 text-xs font-medium w-full"
+              >
+                <MapPin className="w-4 h-4 text-slate-400 group-hover:text-blue-400" />
+                {c.name}
+              </button>
+            </div>
           ))}
         </div>
       </section>
