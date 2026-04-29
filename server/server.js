@@ -13,7 +13,16 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-prod';
 
 const app = express();
-app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173' }));
+const ALLOWED_ORIGINS = [
+  process.env.CLIENT_ORIGIN || 'http://localhost:5173',
+  'http://localhost:5175',
+];
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) cb(null, true);
+    else cb(new Error('CORS 차단: ' + origin));
+  },
+}));
 app.use(express.json());
 
 // ── DB 연결 풀 ─────────────────────────────
@@ -139,16 +148,29 @@ app.post('/auth/login', asyncHandler(async (req, res) => {
 
 // 구글 소셜 로그인
 app.post('/auth/social/google', asyncHandler(async (req, res) => {
-  const { credential } = req.body;
-  if (!credential) return res.status(400).json({ error: '구글 토큰이 필요합니다' });
+  const { credential, accessToken } = req.body;
+  if (!credential && !accessToken) return res.status(400).json({ error: '구글 토큰이 필요합니다' });
 
-  const { data } = await axios.get(
-    `https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`
-  );
+  let providerId, email, username;
 
-  const providerId = data.sub;
-  const email = data.email;
-  const username = data.name || data.email.split('@')[0];
+  if (credential) {
+    // idToken 검증 (React 웹 / 모바일)
+    const { data } = await axios.get(
+      `https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`
+    );
+    providerId = data.sub;
+    email = data.email;
+    username = data.name || data.email.split('@')[0];
+  } else {
+    // accessToken 검증 (Flutter 웹)
+    const { data } = await axios.get(
+      'https://www.googleapis.com/oauth2/v3/userinfo',
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    providerId = data.sub;
+    email = data.email;
+    username = data.name || data.email.split('@')[0];
+  }
 
   const [rows] = await pool.execute(
     'SELECT * FROM users WHERE provider = "google" AND provider_id = ?', [providerId]
@@ -249,27 +271,34 @@ app.delete('/api/favorites/:id', asyncHandler(async (req, res) => {
 // ── AI 코디 추천 ────────────────────────────
 
 app.post('/api/ai/outfit', asyncHandler(async (req, res) => {
-  const { city, temperature, feelsLike, condition, description, humidity, windSpeed, precipProb, uvIndex } = req.body;
+  const { city, temperature, feelsLike, condition, description, humidity, windSpeed, precipProb, uvIndex, tpo } = req.body;
 
   if (!city || temperature === undefined) {
     return res.status(400).json({ error: '날씨 데이터가 필요합니다' });
   }
 
-  const prompt = `현재 날씨 정보를 바탕으로 오늘 입기 좋은 코디를 추천해 주세요.
+  const tpoLabel = tpo || '일상/캐주얼';
+  const temp = Math.round(temperature);
+  const feels = Math.round(feelsLike ?? temperature);
 
-날씨 정보:
+  const prompt = `당신은 패션 스타일리스트입니다. 아래 날씨 정보와 TPO를 바탕으로 실용적이고 세련된 코디를 추천해 주세요.
+
+[날씨]
 - 도시: ${city}
-- 기온: ${Math.round(temperature)}°C (체감 ${Math.round(feelsLike ?? temperature)}°C)
+- 기온: ${temp}°C (체감 ${feels}°C)
 - 날씨: ${description}
-- 습도: ${humidity}%
-- 풍속: ${windSpeed} m/s
-- 강수확률: ${precipProb ?? 0}%
-- 자외선 지수: ${uvIndex ?? 0}
+- 습도: ${humidity}% / 풍속: ${windSpeed}m/s
+- 강수확률: ${precipProb ?? 0}% / 자외선: ${uvIndex ?? 0}
 
-다음 형식으로 간결하게 답변해 주세요 (총 3~5문장):
-1. 날씨 한 줄 요약
-2. 추천 의상 (상의/하의/겉옷/신발 순으로 구체적으로)
-3. 오늘 날씨에 맞는 생활 팁 1가지`;
+[TPO] ${tpoLabel}
+
+아래 형식을 지켜 한국어로 답변해 주세요 (마크다운 없이 plain text):
+
+날씨 한 줄 요약
+추천 코디: 상의 → 하의 → 겉옷(필요시) → 신발 순으로 구체적인 아이템명과 색상 제안
+포인트 팁: ${tpoLabel} 상황에 맞는 실용적인 스타일링 팁 1가지
+
+총 4~6문장으로 간결하고 친근하게 작성해 주세요.`;
 
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.setHeader('Transfer-Encoding', 'chunked');

@@ -74,6 +74,7 @@ export interface OutfitAiRequest {
   windSpeed: number;
   precipProb?: number;
   uvIndex?: number;
+  tpo?: string;
 }
 
 /** 스트리밍 응답. onChunk 콜백으로 텍스트를 조각씩 받는다. */

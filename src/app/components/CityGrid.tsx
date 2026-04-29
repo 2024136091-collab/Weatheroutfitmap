@@ -155,7 +155,7 @@ export function CityGrid({ favorites, history, onSelect, onRemoveFavorite, onDel
                   onClick={() => onSelect(h.city)}
                   className="text-sm bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-full pl-3 pr-7 py-1.5 transition"
                 >
-                  {h.city.replace(',KR', '')}
+                  {h.city.replace(/,[A-Z]{2}$/, '')}
                 </button>
                 <button
                   onClick={() => onDeleteHistory(h.id)}

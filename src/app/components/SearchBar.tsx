@@ -1,13 +1,14 @@
 import { useState, type FormEvent } from 'react';
-import { Search, LocateFixed } from 'lucide-react';
+import { Search, LocateFixed, Loader2 } from 'lucide-react';
 
 interface Props {
   onSearch: (city: string) => void;
   onLocate: () => void;
   loading?: boolean;
+  locating?: boolean;
 }
 
-export function SearchBar({ onSearch, onLocate, loading }: Props) {
+export function SearchBar({ onSearch, onLocate, loading, locating }: Props) {
   const [value, setValue] = useState('');
 
   const handleSubmit = (e: FormEvent) => {
@@ -25,7 +26,7 @@ export function SearchBar({ onSearch, onLocate, loading }: Props) {
             value={value}
             onChange={e => setValue(e.target.value)}
             placeholder="도시를 검색하세요 (예: 서울, 부산)"
-            disabled={loading}
+            disabled={loading || locating}
             className="w-full pl-4 pr-12 py-3.5 rounded-xl bg-white border border-slate-200 shadow-sm
                        text-slate-800 placeholder-slate-400 text-sm
                        focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
@@ -33,7 +34,7 @@ export function SearchBar({ onSearch, onLocate, loading }: Props) {
           />
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || locating}
             className="absolute right-3 top-1/2 -translate-y-1/2
                        text-slate-400 hover:text-blue-600 disabled:opacity-40 transition"
           >
@@ -43,13 +44,18 @@ export function SearchBar({ onSearch, onLocate, loading }: Props) {
         <button
           type="button"
           onClick={onLocate}
-          disabled={loading}
-          title="현재 위치로 검색"
-          className="px-3.5 rounded-xl bg-white border border-slate-200 shadow-sm
-                     text-slate-400 hover:text-blue-600 hover:border-blue-300
-                     disabled:opacity-40 transition"
+          disabled={loading || locating}
+          title={locating ? '위치 탐색 중...' : '현재 위치로 검색'}
+          className={`px-3.5 rounded-xl bg-white border shadow-sm transition
+            ${locating
+              ? 'border-blue-300 text-blue-500'
+              : 'border-slate-200 text-slate-400 hover:text-blue-600 hover:border-blue-300'}
+            disabled:opacity-60`}
         >
-          <LocateFixed className="w-5 h-5" />
+          {locating
+            ? <Loader2 className="w-5 h-5 animate-spin" />
+            : <LocateFixed className="w-5 h-5" />
+          }
         </button>
       </div>
     </form>

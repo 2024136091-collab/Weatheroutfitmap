@@ -4,6 +4,15 @@ import type { WeatherData } from '../types/weather';
 import { streamAiOutfit } from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
 
+const TPO_OPTIONS = [
+  { key: '일상/캐주얼', label: '캐주얼' },
+  { key: '출근/비즈니스', label: '출근' },
+  { key: '데이트/외출', label: '데이트' },
+  { key: '운동/야외활동', label: '운동' },
+] as const;
+
+type TpoKey = typeof TPO_OPTIONS[number]['key'];
+
 interface OutfitItem {
   emoji: string;
   name: string;
@@ -113,6 +122,7 @@ export function OutfitCard({ weather, todayPrecipProb, todayUvIndex, onLoginRequ
   const [aiText, setAiText] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState('');
+  const [selectedTpo, setSelectedTpo] = useState<TpoKey>('일상/캐주얼');
   const abortRef = useRef<AbortController | null>(null);
 
   const handleAiRequest = async () => {
@@ -142,6 +152,7 @@ export function OutfitCard({ weather, todayPrecipProb, todayUvIndex, onLoginRequ
           windSpeed: weather.windSpeed,
           precipProb: todayPrecipProb,
           uvIndex: todayUvIndex,
+          tpo: selectedTpo,
         },
         chunk => setAiText(prev => prev + chunk),
         ctrl.signal
@@ -195,6 +206,23 @@ export function OutfitCard({ weather, todayPrecipProb, todayUvIndex, onLoginRequ
 
       {/* AI 추천 버튼 */}
       <div className="mt-4 pt-4 border-t border-slate-100">
+        {/* TPO 선택 */}
+        <div className="flex gap-1.5 mb-3 flex-wrap">
+          {TPO_OPTIONS.map(opt => (
+            <button
+              key={opt.key}
+              onClick={() => { setSelectedTpo(opt.key); setAiText(''); setAiError(''); }}
+              disabled={aiLoading}
+              className={`text-xs px-3 py-1 rounded-full border transition
+                ${selectedTpo === opt.key
+                  ? 'bg-purple-100 border-purple-300 text-purple-700 font-semibold'
+                  : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300'}
+                disabled:opacity-50`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
         <button
           onClick={handleAiRequest}
           className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition

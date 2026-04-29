@@ -18,6 +18,7 @@ export default function App() {
   const { user } = useAuth();
   const [showLogin, setShowLogin] = useState(false);
   const [showMyPage, setShowMyPage] = useState(false);
+  const [locating, setLocating] = useState(false);
 
   useEffect(() => {
     search('Seoul,KR');
@@ -25,6 +26,15 @@ export default function App() {
 
   const handleSearch = async (city: string) => {
     const result = await search(city);
+    if (result) {
+      saveHistory(`${result.city},${result.country}`);
+    }
+  };
+
+  const handleLocate = async () => {
+    setLocating(true);
+    const result = await searchByLocation();
+    setLocating(false);
     if (result) {
       saveHistory(`${result.city},${result.country}`);
     }
@@ -80,7 +90,7 @@ export default function App() {
         )}
 
         {/* 검색바 */}
-        <SearchBar onSearch={handleSearch} onLocate={searchByLocation} loading={loading} />
+        <SearchBar onSearch={handleSearch} onLocate={handleLocate} loading={loading} locating={locating} />
 
         {/* 로딩 */}
         {loading && (
