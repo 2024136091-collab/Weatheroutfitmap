@@ -1,4 +1,4 @@
-import type { WeatherData } from '../types/weather';
+import type { WeatherData, AirQuality } from '../types/weather';
 
 interface IndexItem {
   emoji: string;
@@ -97,13 +97,47 @@ function computeIndices(weather: WeatherData, uvIndex: number, precipProb: numbe
   ];
 }
 
+interface AqiBarProps {
+  label: string;
+  value: number;
+  unit: string;
+  thresholds: [number, number, number];
+  max: number;
+}
+
+function AqiBar({ label, value, unit, thresholds, max }: AqiBarProps) {
+  const [t1, t2, t3] = thresholds;
+  const grade =
+    value <= t1 ? { text: '좋음', color: 'text-green-600', bar: 'bg-green-400' } :
+    value <= t2 ? { text: '보통', color: 'text-yellow-600', bar: 'bg-yellow-400' } :
+    value <= t3 ? { text: '나쁨', color: 'text-orange-500', bar: 'bg-orange-400' } :
+                  { text: '매우나쁨', color: 'text-red-600', bar: 'bg-red-500' };
+  const pct = Math.min(100, Math.round((value / max) * 100));
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs text-slate-500">{label}</span>
+        <div className="flex items-center gap-1.5">
+          <span className={`text-xs font-semibold ${grade.color}`}>{grade.text}</span>
+          <span className="text-xs text-slate-400">{value}{unit}</span>
+        </div>
+      </div>
+      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all ${grade.bar}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
 interface Props {
   weather: WeatherData;
   uvIndex: number;
   precipProb: number;
+  airQuality?: AirQuality | null;
 }
 
-export function LivingIndexCard({ weather, uvIndex, precipProb }: Props) {
+export function LivingIndexCard({ weather, uvIndex, precipProb, airQuality }: Props) {
   const indices = computeIndices(weather, uvIndex, precipProb);
 
   return (
@@ -120,6 +154,14 @@ export function LivingIndexCard({ weather, uvIndex, precipProb }: Props) {
           </div>
         ))}
       </div>
+
+      {airQuality && (
+        <div className="mt-4 pt-4 border-t border-slate-100 space-y-2.5">
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">미세먼지</p>
+          <AqiBar label="미세먼지 (PM10)" value={airQuality.pm10} unit="㎍/㎥" thresholds={[30, 80, 150]} max={200} />
+          <AqiBar label="초미세먼지 (PM2.5)" value={airQuality.pm25} unit="㎍/㎥" thresholds={[15, 35, 75]} max={100} />
+        </div>
+      )}
     </div>
   );
 }

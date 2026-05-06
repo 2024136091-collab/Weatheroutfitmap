@@ -1,12 +1,14 @@
 import { useState, useCallback } from 'react';
 import { fetchWeatherData, fetchOpenMeteoData, fetchWeatherByCoords, fetchOpenMeteoByCoords } from '../utils/weatherApi';
-import type { WeatherData, ForecastData } from '../types/weather';
+import type { WeatherData, ForecastData, AirQuality } from '../types/weather';
 
 interface WeatherState {
   weather: WeatherData | null;
   forecast: ForecastData[];
   todayUvIndex: number;
   todayPrecipProb: number;
+  airQuality: AirQuality | null;
+  isGpsLocation: boolean;
   loading: boolean;
   error: string | null;
 }
@@ -17,6 +19,8 @@ export function useWeather() {
     forecast: [],
     todayUvIndex: 0,
     todayPrecipProb: 0,
+    airQuality: null,
+    isGpsLocation: false,
     loading: false,
     error: null,
   });
@@ -42,6 +46,8 @@ export function useWeather() {
         forecast: openMeteo?.forecast ?? [],
         todayUvIndex: openMeteo?.todayUvIndex ?? 0,
         todayPrecipProb: openMeteo?.todayPrecipProb ?? 0,
+        airQuality: openMeteo?.airQuality ?? null,
+        isGpsLocation: false,
         loading: false,
         error: null,
       });
@@ -77,6 +83,8 @@ export function useWeather() {
               forecast: openMeteo?.forecast ?? [],
               todayUvIndex: openMeteo?.todayUvIndex ?? 0,
               todayPrecipProb: openMeteo?.todayPrecipProb ?? 0,
+              airQuality: openMeteo?.airQuality ?? null,
+              isGpsLocation: true,
               loading: false,
               error: null,
             });
@@ -87,10 +95,15 @@ export function useWeather() {
             resolve(null);
           }
         },
-        () => {
-          setState(s => ({ ...s, loading: false, error: '위치 권한이 거부되었습니다' }));
+        (err) => {
+          const msg =
+            err.code === 1 ? '위치 권한이 거부되었습니다. 브라우저 설정에서 위치 접근을 허용해 주세요.' :
+            err.code === 2 ? '위치를 가져올 수 없습니다. GPS 신호를 확인해 주세요.' :
+            '위치 요청 시간이 초과되었습니다.';
+          setState(s => ({ ...s, loading: false, error: msg }));
           resolve(null);
-        }
+        },
+        { timeout: 10000, maximumAge: 60000 }
       );
     });
   }, []);

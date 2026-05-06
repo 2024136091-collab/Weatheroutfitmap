@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Sparkles, Loader2, RefreshCw, LogIn } from 'lucide-react';
+import { Sparkles, Loader2, RefreshCw, LogIn, Copy, Check } from 'lucide-react';
 import type { WeatherData } from '../types/weather';
 import { streamAiOutfit } from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -9,6 +9,7 @@ const TPO_OPTIONS = [
   { key: '출근/비즈니스', label: '출근' },
   { key: '데이트/외출', label: '데이트' },
   { key: '운동/야외활동', label: '운동' },
+  { key: '여행/관광', label: '여행' },
 ] as const;
 
 type TpoKey = typeof TPO_OPTIONS[number]['key'];
@@ -107,10 +108,12 @@ interface Props {
   weather: WeatherData;
   todayPrecipProb?: number;
   todayUvIndex?: number;
+  pm25?: number;
+  pm10?: number;
   onLoginRequest?: () => void;
 }
 
-export function OutfitCard({ weather, todayPrecipProb, todayUvIndex, onLoginRequest }: Props) {
+export function OutfitCard({ weather, todayPrecipProb, todayUvIndex, pm25, pm10, onLoginRequest }: Props) {
   const { title, items, extras, tip } = getOutfit(
     weather.temperature,
     weather.condition,
@@ -123,6 +126,7 @@ export function OutfitCard({ weather, todayPrecipProb, todayUvIndex, onLoginRequ
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState('');
   const [selectedTpo, setSelectedTpo] = useState<TpoKey>('일상/캐주얼');
+  const [copied, setCopied] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const handleAiRequest = async () => {
@@ -153,6 +157,8 @@ export function OutfitCard({ weather, todayPrecipProb, todayUvIndex, onLoginRequ
           precipProb: todayPrecipProb,
           uvIndex: todayUvIndex,
           tpo: selectedTpo,
+          pm25,
+          pm10,
         },
         chunk => setAiText(prev => prev + chunk),
         ctrl.signal
@@ -261,8 +267,25 @@ export function OutfitCard({ weather, todayPrecipProb, todayUvIndex, onLoginRequ
           <p className="mt-3 text-xs text-red-500">{aiError}</p>
         )}
         {(aiText || aiLoading) && !aiError && (
-          <div className="mt-3 bg-purple-50 rounded-xl p-4">
-            <p className="text-xs text-purple-700 leading-relaxed whitespace-pre-wrap">
+          <div className="mt-3 bg-purple-50 rounded-xl p-4 relative">
+            {aiText && !aiLoading && (
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(aiText).then(() => {
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  });
+                }}
+                className="absolute top-2.5 right-2.5 p-1.5 rounded-lg bg-white/60 hover:bg-white/90 transition"
+                title="복사"
+              >
+                {copied
+                  ? <Check className="w-3.5 h-3.5 text-green-600" />
+                  : <Copy className="w-3.5 h-3.5 text-purple-500" />
+                }
+              </button>
+            )}
+            <p className="text-xs text-purple-700 leading-relaxed whitespace-pre-wrap pr-6">
               {aiText}
               {aiLoading && <span className="inline-block w-1 h-3 ml-0.5 bg-purple-400 animate-pulse rounded-sm" />}
             </p>

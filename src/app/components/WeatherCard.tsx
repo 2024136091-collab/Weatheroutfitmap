@@ -1,5 +1,12 @@
-import { Droplets, Wind, Gauge, Eye, Star } from 'lucide-react';
+import { Droplets, Wind, Gauge, Eye, Star, MapPin } from 'lucide-react';
 import type { WeatherData } from '../types/weather';
+
+function formatSunTime(unix?: number): string | null {
+  if (!unix) return null;
+  return new Date(unix * 1000).toLocaleTimeString('ko-KR', {
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+}
 
 const WEATHER_BG: Record<string, string> = {
   Clear:        'from-amber-400 to-orange-300',
@@ -23,9 +30,10 @@ interface Props {
   weather: WeatherData;
   isFavorite: boolean;
   onToggleFavorite: () => void;
+  isGpsLocation?: boolean;
 }
 
-export function WeatherCard({ weather, isFavorite, onToggleFavorite }: Props) {
+export function WeatherCard({ weather, isFavorite, onToggleFavorite, isGpsLocation }: Props) {
   const bg = WEATHER_BG[weather.condition] ?? WEATHER_BG.Clouds;
   const emoji = WEATHER_EMOJI[weather.condition] ?? '🌡️';
 
@@ -35,7 +43,14 @@ export function WeatherCard({ weather, isFavorite, onToggleFavorite }: Props) {
       <div className="flex items-start justify-between">
         <div>
           <p className="text-xs font-medium opacity-80 mb-0.5">{weather.country}</p>
-          <h2 className="text-2xl font-semibold">{weather.city}</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-2xl font-semibold">{weather.city}</h2>
+            {isGpsLocation && (
+              <span className="flex items-center gap-0.5 bg-white/20 rounded-full px-2 py-0.5 text-xs font-medium">
+                <MapPin className="w-3 h-3" />현재위치
+              </span>
+            )}
+          </div>
           {weather.district && (
             <p className="text-xs opacity-70 mt-0.5">{weather.district}</p>
           )}
@@ -73,6 +88,30 @@ export function WeatherCard({ weather, isFavorite, onToggleFavorite }: Props) {
           </div>
         ))}
       </div>
+
+      {/* 일출/일몰 */}
+      {(weather.sunrise || weather.sunset) && (
+        <div className="flex justify-center gap-8 mt-3 pt-3 border-t border-white/20">
+          {weather.sunrise && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-base">🌅</span>
+              <div>
+                <p className="text-xs opacity-60 leading-none">일출</p>
+                <p className="text-sm font-medium">{formatSunTime(weather.sunrise)}</p>
+              </div>
+            </div>
+          )}
+          {weather.sunset && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-base">🌇</span>
+              <div>
+                <p className="text-xs opacity-60 leading-none">일몰</p>
+                <p className="text-sm font-medium">{formatSunTime(weather.sunset)}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

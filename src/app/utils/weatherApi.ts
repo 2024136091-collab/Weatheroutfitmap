@@ -1,4 +1,4 @@
-import type { WeatherData, ForecastData } from '../types/weather';
+import type { WeatherData, ForecastData, AirQuality } from '../types/weather';
 
 const API_KEY = '7e29173a70b89b4919dfe873c2352b30';
 const BASE_URL = 'https://api.openweathermap.org/data/2.5';
@@ -67,6 +67,8 @@ export async function fetchWeatherByCoords(lat: number, lon: number): Promise<We
     windSpeed: d.wind.speed,
     pressure: d.main.pressure,
     visibility: d.visibility,
+    sunrise: d.sys.sunrise,
+    sunset: d.sys.sunset,
   };
 }
 
@@ -97,6 +99,8 @@ export async function fetchWeatherData(city: string): Promise<WeatherData> {
     windSpeed: d.wind.speed,
     pressure: d.main.pressure,
     visibility: d.visibility,
+    sunrise: d.sys.sunrise,
+    sunset: d.sys.sunset,
   };
 }
 
@@ -136,6 +140,7 @@ export interface OpenMeteoResult {
   forecast: ForecastData[];
   todayUvIndex: number;
   todayPrecipProb: number;
+  airQuality: AirQuality | null;
 }
 
 export async function fetchOpenMeteoByCoords(lat: number, lon: number): Promise<OpenMeteoResult> {
@@ -143,13 +148,20 @@ export async function fetchOpenMeteoByCoords(lat: number, lon: number): Promise<
 }
 
 async function fetchOpenMeteoForecast(latitude: number, longitude: number): Promise<OpenMeteoResult> {
-  const fRes = await fetch(
-    `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
-    `&daily=temperature_2m_max,temperature_2m_min,weathercode,precipitation_probability_max,uv_index_max` +
-    `&timezone=auto&forecast_days=15`
-  );
-  if (!fRes.ok) throw new Error('예보를 가져올 수 없습니다');
-  const fData = await fRes.json();
+  const [fRes, aqRes] = await Promise.allSettled([
+    fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
+      `&daily=temperature_2m_max,temperature_2m_min,weathercode,precipitation_probability_max,uv_index_max` +
+      `&timezone=auto&forecast_days=15`
+    ),
+    fetch(
+      `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${latitude}&longitude=${longitude}` +
+      `&hourly=pm10,pm2_5,european_aqi&timezone=auto&forecast_days=1`
+    ),
+  ]);
+
+  if (fRes.status === 'rejected' || !fRes.value.ok) throw new Error('예보를 가져올 수 없습니다');
+  const fData = await fRes.value.json();
 
   const daily = fData.daily;
   const forecast: ForecastData[] = (daily.time as string[]).map((dateStr, i) => {
@@ -168,10 +180,29 @@ async function fetchOpenMeteoForecast(latitude: number, longitude: number): Prom
     };
   });
 
+  let airQuality: AirQuality | null = null;
+  if (aqRes.status === 'fulfilled' && aqRes.value.ok) {
+    try {
+      const aqData = await aqRes.value.json();
+      const times = aqData.hourly?.time as string[] | undefined;
+      if (times?.length) {
+        const nowHour = new Date().toISOString().slice(0, 13);
+        let idx = times.findIndex(t => t.slice(0, 13) >= nowHour);
+        if (idx < 0) idx = times.length - 1;
+        airQuality = {
+          pm25: Math.round(aqData.hourly.pm2_5[idx] ?? 0),
+          pm10: Math.round(aqData.hourly.pm10[idx] ?? 0),
+          aqi: Math.round(aqData.hourly.european_aqi[idx] ?? 0),
+        };
+      }
+    } catch { /* AQI 실패 시 null 유지 */ }
+  }
+
   return {
     forecast,
     todayUvIndex: daily.uv_index_max[0] ?? 0,
     todayPrecipProb: daily.precipitation_probability_max[0] ?? 0,
+    airQuality,
   };
 }
 

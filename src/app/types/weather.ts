@@ -10,6 +10,14 @@ export interface WeatherData {
   windSpeed: number;
   pressure: number;
   visibility: number;
+  sunrise?: number;
+  sunset?: number;
+}
+
+export interface AirQuality {
+  pm25: number;
+  pm10: number;
+  aqi: number;
 }
 
 export interface ForecastData {

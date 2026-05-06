@@ -8,8 +8,16 @@ export interface HistoryItem {
   searched_at: string;
 }
 
+function authHeaders(): HeadersInit {
+  const token = localStorage.getItem('auth_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, options);
+  const res = await fetch(`${BASE_URL}${path}`, {
+    ...options,
+    headers: { ...authHeaders(), ...(options?.headers ?? {}) },
+  });
   if (!res.ok) throw new Error(`API 오류: ${res.status}`);
   return res.json();
 }
@@ -75,6 +83,8 @@ export interface OutfitAiRequest {
   precipProb?: number;
   uvIndex?: number;
   tpo?: string;
+  pm25?: number;
+  pm10?: number;
 }
 
 /** 스트리밍 응답. onChunk 콜백으로 텍스트를 조각씩 받는다. */

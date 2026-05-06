@@ -13,7 +13,7 @@ import { MyPage } from './components/MyPage';
 import { useAuth } from './contexts/AuthContext';
 
 export default function App() {
-  const { weather, forecast, todayUvIndex, todayPrecipProb, loading, error, search, searchByLocation } = useWeather();
+  const { weather, forecast, todayUvIndex, todayPrecipProb, airQuality, isGpsLocation, loading, error, search, searchByLocation } = useWeather();
   const { history, favorites, saveHistory, deleteHistory, deleteHistoryOne, toggleFavorite, deleteFavorite, deleteAllFavorites, isFavorite } = useStorage();
   const { user } = useAuth();
   const [showLogin, setShowLogin] = useState(false);
@@ -114,9 +114,17 @@ export default function App() {
               weather={weather}
               isFavorite={isFavorite(currentCityKey)}
               onToggleFavorite={() => toggleFavorite(currentCityKey, weather.city)}
+              isGpsLocation={isGpsLocation}
             />
-            <OutfitCard weather={weather} todayPrecipProb={todayPrecipProb} todayUvIndex={todayUvIndex} onLoginRequest={() => setShowLogin(true)} />
-            <LivingIndexCard weather={weather} uvIndex={todayUvIndex} precipProb={todayPrecipProb} />
+            <OutfitCard
+              weather={weather}
+              todayPrecipProb={todayPrecipProb}
+              todayUvIndex={todayUvIndex}
+              pm25={airQuality?.pm25}
+              pm10={airQuality?.pm10}
+              onLoginRequest={() => setShowLogin(true)}
+            />
+            <LivingIndexCard weather={weather} uvIndex={todayUvIndex} precipProb={todayPrecipProb} airQuality={airQuality} />
             <ForecastCard forecast={forecast} />
           </>
         )}
