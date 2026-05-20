@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/weather_provider.dart';
 import '../providers/auth_provider.dart';
+import '../services/weather_service.dart';
 
 class CityGridWidget extends StatelessWidget {
   const CityGridWidget({super.key});
@@ -75,7 +76,7 @@ class CityGridWidget extends StatelessWidget {
               physics: const NeverScrollableScrollPhysics(),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 3,
-                childAspectRatio: 2.2,
+                childAspectRatio: 1.6,
                 crossAxisSpacing: 8,
                 mainAxisSpacing: 8,
               ),
@@ -86,6 +87,7 @@ class CityGridWidget extends StatelessWidget {
                     fav['city'] as String? ?? '';
                 final city = fav['city'] as String? ?? '';
                 final id = (fav['id'] as num?)?.toInt() ?? 0;
+                final favWeather = weatherProvider.favoriteWeathers[city];
                 return GestureDetector(
                   onTap: () => _searchCity(context, city),
                   onLongPress: () => weatherProvider.removeFavorite(
@@ -99,15 +101,50 @@ class CityGridWidget extends StatelessWidget {
                       ),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: Center(
-                      child: Text(
-                        displayName,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        overflow: TextOverflow.ellipsis,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            displayName,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          if (favWeather != null) ...[
+                            const SizedBox(height: 2),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  WeatherService.conditionToEmoji(favWeather.condition),
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                                const SizedBox(width: 3),
+                                Text(
+                                  '${favWeather.temperature.round()}°',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ] else
+                            const SizedBox(
+                              height: 14,
+                              width: 14,
+                              child: CircularProgressIndicator(
+                                color: Colors.white54,
+                                strokeWidth: 1.5,
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   ),

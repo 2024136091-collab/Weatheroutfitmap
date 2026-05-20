@@ -53,12 +53,13 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _handleLogout() {
+  Future<void> _handleLogout() async {
     final authProvider = context.read<AuthProvider>();
     final weatherProvider = context.read<WeatherProvider>();
     authProvider.logout();
-    weatherProvider.loadHistory(null);
-    weatherProvider.loadFavorites(null);
+    // 로그아웃 후 익명 기록/즐겨찾기 다시 로드
+    await weatherProvider.loadHistory(null);
+    await weatherProvider.loadFavorites(null);
   }
 
   Future<void> _toggleFavorite() async {

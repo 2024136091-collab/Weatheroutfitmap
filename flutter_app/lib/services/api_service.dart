@@ -57,22 +57,17 @@ class ApiService {
   }
 
   Future<List<Map<String, dynamic>>> getHistory(String? token) async {
-    if (token == null || token.isEmpty) return [];
     final response = await http.get(
       Uri.parse('$baseUrl/api/history'),
       headers: _headers(token),
     );
-    if (response.statusCode == 401) return [];
     if (response.statusCode != 200) return [];
     final data = jsonDecode(response.body);
-    if (data is List) {
-      return data.cast<Map<String, dynamic>>();
-    }
+    if (data is List) return data.cast<Map<String, dynamic>>();
     return [];
   }
 
   Future<void> addHistory(String city, String? token) async {
-    if (token == null || token.isEmpty) return;
     await http.post(
       Uri.parse('$baseUrl/api/history'),
       headers: _headers(token),
@@ -81,7 +76,6 @@ class ApiService {
   }
 
   Future<void> deleteHistory(String? token) async {
-    if (token == null || token.isEmpty) return;
     await http.delete(
       Uri.parse('$baseUrl/api/history'),
       headers: _headers(token),
@@ -89,7 +83,6 @@ class ApiService {
   }
 
   Future<void> deleteHistoryItem(int id, String? token) async {
-    if (token == null || token.isEmpty) return;
     await http.delete(
       Uri.parse('$baseUrl/api/history/$id'),
       headers: _headers(token),
@@ -97,23 +90,18 @@ class ApiService {
   }
 
   Future<List<Map<String, dynamic>>> getFavorites(String? token) async {
-    if (token == null || token.isEmpty) return [];
     final response = await http.get(
       Uri.parse('$baseUrl/api/favorites'),
       headers: _headers(token),
     );
-    if (response.statusCode == 401) return [];
     if (response.statusCode != 200) return [];
     final data = jsonDecode(response.body);
-    if (data is List) {
-      return data.cast<Map<String, dynamic>>();
-    }
+    if (data is List) return data.cast<Map<String, dynamic>>();
     return [];
   }
 
   Future<void> addFavorite(
       String city, String displayName, String? token) async {
-    if (token == null || token.isEmpty) return;
     await http.post(
       Uri.parse('$baseUrl/api/favorites'),
       headers: _headers(token),
@@ -122,7 +110,6 @@ class ApiService {
   }
 
   Future<void> removeFavorite(int id, String? token) async {
-    if (token == null || token.isEmpty) return;
     await http.delete(
       Uri.parse('$baseUrl/api/favorites/$id'),
       headers: _headers(token),
@@ -130,7 +117,6 @@ class ApiService {
   }
 
   Future<void> clearFavorites(String? token) async {
-    if (token == null || token.isEmpty) return;
     await http.delete(
       Uri.parse('$baseUrl/api/favorites'),
       headers: _headers(token),

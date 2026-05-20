@@ -5,17 +5,14 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
 const path = require('path');
-const Anthropic = require('@anthropic-ai/sdk');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-prod';
 
 const app = express();
 const ALLOWED_ORIGINS = [
-  process.env.CLIENT_ORIGIN || 'http://localhost:5173',
-  'http://localhost:5175',
+  process.env.CLIENT_ORIGIN || 'http://localhost:3000',
+  'http://localhost:3001',
 ];
 app.use(cors({
   origin: (origin, cb) => {
@@ -294,64 +291,6 @@ app.delete('/api/favorites/:id', optionalAuth, asyncHandler(async (req, res) => 
   const userId = req.user?.id ?? null;
   await pool.execute('DELETE FROM favorite_cities WHERE id = ? AND user_id <=> ?', [id, userId]);
   res.json({ success: true });
-}));
-
-// ── AI 코디 추천 ────────────────────────────
-
-app.post('/api/ai/outfit', asyncHandler(async (req, res) => {
-  const { city, temperature, feelsLike, condition, description, humidity, windSpeed, precipProb, uvIndex, tpo, pm25, pm10 } = req.body;
-
-  if (!city || temperature === undefined) {
-    return res.status(400).json({ error: '날씨 데이터가 필요합니다' });
-  }
-
-  const tpoLabel = tpo || '일상/캐주얼';
-  const temp = Math.round(temperature);
-  const feels = Math.round(feelsLike ?? temperature);
-
-  const pm25Grade =
-    pm25 === undefined ? null :
-    pm25 <= 15 ? '좋음' : pm25 <= 35 ? '보통' : pm25 <= 75 ? '나쁨' : '매우나쁨';
-  const airQualityLine = pm25Grade
-    ? `\n- 초미세먼지(PM2.5): ${pm25}㎍/㎥ (${pm25Grade}) / 미세먼지(PM10): ${pm10 ?? '-'}㎍/㎥`
-    : '';
-
-  const prompt = `당신은 패션 스타일리스트입니다. 아래 날씨 정보와 TPO를 바탕으로 실용적이고 세련된 코디를 추천해 주세요.
-
-[날씨]
-- 도시: ${city}
-- 기온: ${temp}°C (체감 ${feels}°C)
-- 날씨: ${description}
-- 습도: ${humidity}% / 풍속: ${windSpeed}m/s
-- 강수확률: ${precipProb ?? 0}% / 자외선: ${uvIndex ?? 0}${airQualityLine}
-
-[TPO] ${tpoLabel}
-
-아래 형식을 지켜 한국어로 답변해 주세요 (마크다운 없이 plain text):
-
-날씨 한 줄 요약
-추천 코디: 상의 → 하의 → 겉옷(필요시) → 신발 순으로 구체적인 아이템명과 색상 제안
-포인트 팁: ${tpoLabel} 상황에 맞는 실용적인 스타일링 팁 1가지${pm25Grade && pm25Grade !== '좋음' ? ' (미세먼지 수준도 반영)' : ''}
-
-총 4~6문장으로 간결하고 친근하게 작성해 주세요.`;
-
-  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-  res.setHeader('Transfer-Encoding', 'chunked');
-  res.setHeader('Cache-Control', 'no-cache');
-
-  const stream = await anthropic.messages.stream({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 512,
-    messages: [{ role: 'user', content: prompt }],
-  });
-
-  for await (const chunk of stream) {
-    if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
-      res.write(chunk.delta.text);
-    }
-  }
-
-  res.end();
 }));
 
 // ── 전역 에러 핸들러 ────────────────────────

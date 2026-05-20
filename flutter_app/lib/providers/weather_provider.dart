@@ -16,6 +16,7 @@ class WeatherProvider extends ChangeNotifier {
 
   List<Map<String, dynamic>> _history = [];
   List<Map<String, dynamic>> _favorites = [];
+  Map<String, WeatherData> _favoriteWeathers = {};
 
   final WeatherService _weatherService = WeatherService();
   final LocationService _locationService = LocationService();
@@ -31,6 +32,7 @@ class WeatherProvider extends ChangeNotifier {
   String? get error => _error;
   List<Map<String, dynamic>> get history => _history;
   List<Map<String, dynamic>> get favorites => _favorites;
+  Map<String, WeatherData> get favoriteWeathers => _favoriteWeathers;
 
   Future<WeatherData?> searchByCity(String city, {String? token}) async {
     _loading = true;
@@ -47,11 +49,9 @@ class WeatherProvider extends ChangeNotifier {
       _todayPrecipProb = result['precipProb'] as int;
       _airQuality = result['airQuality'] as AirQuality?;
 
-      // 검색 기록 저장
-      if (token != null && token.isNotEmpty) {
-        await _apiService.addHistory(city, token);
-        await loadHistory(token);
-      }
+      // 검색 기록 저장 (비로그인 포함)
+      await _apiService.addHistory(city, token);
+      await loadHistory(token);
 
       return weather;
     } catch (e) {
@@ -104,12 +104,10 @@ class WeatherProvider extends ChangeNotifier {
       _todayPrecipProb = result['precipProb'] as int;
       _airQuality = result['airQuality'] as AirQuality?;
 
-      // GPS 검색 기록 저장
-      if (token != null && token.isNotEmpty) {
-        final cityName = _weather?.district ?? _weather?.city ?? 'GPS 위치';
-        await _apiService.addHistory('GPS:$lat,$lon:$cityName', token);
-        await loadHistory(token);
-      }
+      // GPS 검색 기록 저장 (비로그인 포함)
+      final cityName = _weather?.district ?? _weather?.city ?? 'GPS 위치';
+      await _apiService.addHistory('GPS:$lat,$lon:$cityName', token);
+      await loadHistory(token);
 
       return _weather;
     } catch (e) {
@@ -123,11 +121,6 @@ class WeatherProvider extends ChangeNotifier {
   }
 
   Future<void> loadHistory(String? token) async {
-    if (token == null || token.isEmpty) {
-      _history = [];
-      notifyListeners();
-      return;
-    }
     try {
       _history = await _apiService.getHistory(token);
       notifyListeners();
@@ -145,15 +138,35 @@ class WeatherProvider extends ChangeNotifier {
   }
 
   Future<void> loadFavorites(String? token) async {
-    if (token == null || token.isEmpty) {
-      _favorites = [];
-      notifyListeners();
-      return;
-    }
     try {
       _favorites = await _apiService.getFavorites(token);
       notifyListeners();
+      _refreshFavoriteWeathers();
     } catch (_) {}
+  }
+
+  Future<void> _refreshFavoriteWeathers() async {
+    final cities = _favorites
+        .map((f) => f['city'] as String? ?? '')
+        .where((c) => c.isNotEmpty)
+        .toList();
+
+    final results = await Future.wait(
+      cities.map((city) async {
+        try {
+          final w = await _weatherService.fetchWeatherByCity(city);
+          return MapEntry(city, w);
+        } catch (_) {
+          return null;
+        }
+      }),
+    );
+
+    _favoriteWeathers = {
+      for (final e in results)
+        if (e != null) e.key: e.value,
+    };
+    notifyListeners();
   }
 
   Future<void> addFavorite(
