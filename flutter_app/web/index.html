@@ -29,9 +29,6 @@
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <!-- Google Sign-In -->
-  <meta name="google-signin-client_id" content="440354179334-1fq5m5uaqj9kin549lga5gpvd6cscvei.apps.googleusercontent.com">
-
   <title>날씨 코디</title>
   <link rel="manifest" href="manifest.json">
 </head>
@@ -44,31 +41,6 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
-  <script src="https://accounts.google.com/gsi/client"></script>
-  <script>
-    window.getGoogleToken = function(clientId) {
-      return new Promise(function(resolve, reject) {
-        try {
-          google.accounts.oauth2.initTokenClient({
-            client_id: clientId,
-            scope: 'email profile openid',
-            callback: function(response) {
-              if (response && response.access_token) {
-                resolve(response.access_token);
-              } else {
-                reject('access_token 없음');
-              }
-            },
-            error_callback: function(err) {
-              reject(err.message || 'Google 로그인 실패');
-            },
-          }).requestAccessToken({ prompt: 'select_account' });
-        } catch(e) {
-          reject(String(e));
-        }
-      });
-    };
-  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

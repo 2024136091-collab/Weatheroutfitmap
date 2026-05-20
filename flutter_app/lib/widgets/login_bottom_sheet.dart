@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/weather_provider.dart';
-import '../services/google_auth_stub.dart'
-    if (dart.library.js_interop) '../services/google_auth_web.dart';
 
 class LoginBottomSheet extends StatefulWidget {
   const LoginBottomSheet({super.key});
@@ -21,9 +19,6 @@ class _LoginBottomSheetState extends State<LoginBottomSheet>
   bool _obscurePassword = true;
   String? _errorMsg;
   bool _loading = false;
-
-  static const _googleClientId =
-      '440354179334-1fq5m5uaqj9kin549lga5gpvd6cscvei.apps.googleusercontent.com';
 
   @override
   void initState() {
@@ -90,36 +85,6 @@ class _LoginBottomSheetState extends State<LoginBottomSheet>
     try {
       final authProvider = context.read<AuthProvider>();
       await authProvider.register(email, password, username);
-      if (mounted) {
-        final weatherProvider = context.read<WeatherProvider>();
-        await weatherProvider.loadHistory(authProvider.token);
-        await weatherProvider.loadFavorites(authProvider.token);
-        Navigator.of(context).pop();
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _errorMsg = e.toString().replaceFirst('Exception: ', '');
-        });
-      }
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _handleGoogleSignIn() async {
-    setState(() {
-      _loading = true;
-      _errorMsg = null;
-    });
-    try {
-      final accessToken = await getGoogleAccessToken(_googleClientId);
-      if (accessToken == null) {
-        setState(() => _loading = false);
-        return;
-      }
-      final authProvider = context.read<AuthProvider>();
-      await authProvider.googleLogin(accessToken);
       if (mounted) {
         final weatherProvider = context.read<WeatherProvider>();
         await weatherProvider.loadHistory(authProvider.token);
@@ -220,27 +185,6 @@ class _LoginBottomSheetState extends State<LoginBottomSheet>
                 ),
               ),
             ],
-            const SizedBox(height: 12),
-            // Google 로그인
-            OutlinedButton.icon(
-              onPressed: _loading ? null : _handleGoogleSignIn,
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size(double.infinity, 46),
-                side: const BorderSide(color: Color(0xFFE2E8F0)),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-              ),
-              icon: const Text('G',
-                  style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF4285F4))),
-              label: const Text(
-                'Google로 계속하기',
-                style: TextStyle(
-                    color: Color(0xFF374151), fontWeight: FontWeight.w500),
-              ),
-            ),
             const SizedBox(height: 8),
           ],
         ),
