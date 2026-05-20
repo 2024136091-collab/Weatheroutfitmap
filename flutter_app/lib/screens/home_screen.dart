@@ -201,7 +201,12 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               // 코디 카드
               SliverToBoxAdapter(
-                child: OutfitCard(weather: weather),
+                child: OutfitCard(
+                  weather: weather,
+                  precipProb: weatherProvider.todayPrecipProb,
+                  uvIndex: weatherProvider.todayUvIndex.round(),
+                  airQuality: weatherProvider.airQuality,
+                ),
               ),
               // 생활 지수 카드
               SliverToBoxAdapter(

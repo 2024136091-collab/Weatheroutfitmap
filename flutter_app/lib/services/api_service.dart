@@ -1,16 +1,11 @@
 import 'dart:convert';
-import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 
 class ApiService {
   static String get baseUrl {
-    // Android 에뮬레이터에서는 10.0.2.2, 실기기/iOS/기타에서는 localhost
-    try {
-      if (Platform.isAndroid) {
-        return 'http://10.0.2.2:3001';
-      }
-    } catch (_) {}
-    return 'http://localhost:3001';
+    if (kIsWeb) return 'http://localhost:3001';
+    return 'http://10.0.2.2:3001';
   }
 
   Map<String, String> _headers(String? token) {
@@ -142,31 +137,4 @@ class ApiService {
     );
   }
 
-  Stream<String> streamAiOutfit(
-      Map<String, dynamic> data, String? token) async* {
-    final request = http.Request(
-      'POST',
-      Uri.parse('$baseUrl/api/ai/outfit'),
-    );
-    request.headers.addAll(_headers(token));
-    request.body = jsonEncode(data);
-
-    final client = http.Client();
-    try {
-      final streamedResponse = await client.send(request);
-      if (streamedResponse.statusCode == 401) {
-        yield '로그인이 필요합니다.';
-        return;
-      }
-      if (streamedResponse.statusCode != 200) {
-        yield 'AI 추천 오류 (${streamedResponse.statusCode})';
-        return;
-      }
-      await for (final chunk in streamedResponse.stream) {
-        yield utf8.decode(chunk, allowMalformed: true);
-      }
-    } finally {
-      client.close();
-    }
-  }
 }
