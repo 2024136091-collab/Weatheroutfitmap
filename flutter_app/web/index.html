@@ -44,6 +44,31 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
+  <script src="https://accounts.google.com/gsi/client"></script>
+  <script>
+    window.getGoogleToken = function(clientId) {
+      return new Promise(function(resolve, reject) {
+        try {
+          google.accounts.oauth2.initTokenClient({
+            client_id: clientId,
+            scope: 'email profile openid',
+            callback: function(response) {
+              if (response && response.access_token) {
+                resolve(response.access_token);
+              } else {
+                reject('access_token 없음');
+              }
+            },
+            error_callback: function(err) {
+              reject(err.message || 'Google 로그인 실패');
+            },
+          }).requestAccessToken({ prompt: 'select_account' });
+        } catch(e) {
+          reject(String(e));
+        }
+      });
+    };
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

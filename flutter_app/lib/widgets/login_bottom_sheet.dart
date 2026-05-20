@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import '../providers/auth_provider.dart';
 import '../providers/weather_provider.dart';
+import '../services/google_auth_stub.dart'
+    if (dart.library.js_interop) '../services/google_auth_web.dart';
 
 class LoginBottomSheet extends StatefulWidget {
   const LoginBottomSheet({super.key});
@@ -21,10 +22,8 @@ class _LoginBottomSheetState extends State<LoginBottomSheet>
   String? _errorMsg;
   bool _loading = false;
 
-  final GoogleSignIn _googleSignIn = GoogleSignIn(
-    clientId: '440354179334-1fq5m5uaqj9kin549lga5gpvd6cscvei.apps.googleusercontent.com',
-    scopes: ['email', 'profile'],
-  );
+  static const _googleClientId =
+      '440354179334-1fq5m5uaqj9kin549lga5gpvd6cscvei.apps.googleusercontent.com';
 
   @override
   void initState() {
@@ -114,18 +113,9 @@ class _LoginBottomSheetState extends State<LoginBottomSheet>
       _errorMsg = null;
     });
     try {
-      final googleUser = await _googleSignIn.signIn();
-      if (googleUser == null) {
-        setState(() => _loading = false);
-        return;
-      }
-      final auth = await googleUser.authentication;
-      final accessToken = auth.accessToken;
+      final accessToken = await getGoogleAccessToken(_googleClientId);
       if (accessToken == null) {
-        setState(() {
-          _loading = false;
-          _errorMsg = 'Google 액세스 토큰을 가져올 수 없습니다.';
-        });
+        setState(() => _loading = false);
         return;
       }
       final authProvider = context.read<AuthProvider>();
