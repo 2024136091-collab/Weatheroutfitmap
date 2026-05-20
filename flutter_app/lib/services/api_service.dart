@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
+import 'dart:async';
 
 class ApiService {
   static String get baseUrl {
@@ -121,6 +122,49 @@ class ApiService {
       Uri.parse('$baseUrl/api/favorites'),
       headers: _headers(token),
     );
+  }
+
+  Stream<String> streamAiOutfit({
+    required String city,
+    required double temperature,
+    required double feelsLike,
+    required String condition,
+    required String description,
+    required int humidity,
+    required double windSpeed,
+    required int precipProb,
+    required double uvIndex,
+  }) async* {
+    final client = http.Client();
+    try {
+      final request = http.Request('POST', Uri.parse('$baseUrl/api/ai/outfit'));
+      request.headers['Content-Type'] = 'application/json';
+      request.body = jsonEncode({
+        'city': city,
+        'temperature': temperature,
+        'feelsLike': feelsLike,
+        'condition': condition,
+        'description': description,
+        'humidity': humidity,
+        'windSpeed': windSpeed,
+        'precipProb': precipProb,
+        'uvIndex': uvIndex,
+      });
+
+      final streamedResponse = await client.send(request);
+      if (streamedResponse.statusCode != 200) {
+        final body = await streamedResponse.stream.bytesToString();
+        throw Exception(
+            jsonDecode(body)['error'] as String? ?? 'AI 추천 오류');
+      }
+
+      await for (final chunk
+          in streamedResponse.stream.transform(utf8.decoder)) {
+        yield chunk;
+      }
+    } finally {
+      client.close();
+    }
   }
 
 }

@@ -8,6 +8,8 @@ import '../widgets/living_index_card.dart';
 import '../widgets/forecast_card.dart';
 import '../widgets/city_grid_widget.dart';
 import '../widgets/login_bottom_sheet.dart';
+import '../widgets/ai_outfit_card.dart';
+import 'my_page_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -51,15 +53,6 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: Colors.transparent,
       builder: (_) => const LoginBottomSheet(),
     );
-  }
-
-  Future<void> _handleLogout() async {
-    final authProvider = context.read<AuthProvider>();
-    final weatherProvider = context.read<WeatherProvider>();
-    authProvider.logout();
-    // 로그아웃 후 익명 기록/즐겨찾기 다시 로드
-    await weatherProvider.loadHistory(null);
-    await weatherProvider.loadFavorites(null);
   }
 
   Future<void> _toggleFavorite() async {
@@ -186,7 +179,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Container(
                             padding: const EdgeInsets.all(6),
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.25),
+                              color: Colors.white.withValues(alpha: 0.25),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Icon(
@@ -207,6 +200,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   precipProb: weatherProvider.todayPrecipProb,
                   uvIndex: weatherProvider.todayUvIndex.round(),
                   airQuality: weatherProvider.airQuality,
+                ),
+              ),
+              // AI 코디 추천 카드
+              SliverToBoxAdapter(
+                child: AiOutfitCard(
+                  weather: weather,
+                  precipProb: weatherProvider.todayPrecipProb,
+                  uvIndex: weatherProvider.todayUvIndex,
+                  isLoggedIn: authProvider.isLoggedIn,
+                  onLoginTap: _showLoginSheet,
                 ),
               ),
               // 생활 지수 카드
@@ -265,24 +268,50 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           if (authProvider.isLoggedIn) ...[
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  authProvider.user?.username ?? '',
-                  style: const TextStyle(
+            GestureDetector(
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const MyPageScreen()),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF8B5CF6), Color(0xFF6366F1)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Center(
+                      child: Text(
+                        (authProvider.user?.username.isNotEmpty == true)
+                            ? authProvider.user!.username[0].toUpperCase()
+                            : '?',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    authProvider.user?.username ?? '',
+                    style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
-                      color: Color(0xFF374151)),
-                ),
-                GestureDetector(
-                  onTap: _handleLogout,
-                  child: const Text(
-                    '로그아웃',
-                    style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                      color: Color(0xFF374151),
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(width: 2),
+                  const Icon(Icons.chevron_right,
+                      size: 16, color: Color(0xFFCBD5E1)),
+                ],
+              ),
             ),
           ] else
             TextButton(

@@ -5,14 +5,18 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
 const path = require('path');
+const Anthropic = require('@anthropic-ai/sdk');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-prod';
 
 const app = express();
 const ALLOWED_ORIGINS = [
-  process.env.CLIENT_ORIGIN || 'http://localhost:3000',
+  'http://localhost:3000',
   'http://localhost:3001',
+  ...(process.env.CLIENT_ORIGIN ? [process.env.CLIENT_ORIGIN] : []),
 ];
 app.use(cors({
   origin: (origin, cb) => {
@@ -132,6 +136,9 @@ app.post('/auth/register', asyncHandler(async (req, res) => {
   const { email, password, username } = req.body;
   if (!email || !password || !username) {
     return res.status(400).json({ error: '이메일, 비밀번호, 닉네임을 모두 입력해주세요' });
+  }
+  if (password.length < 8) {
+    return res.status(400).json({ error: '비밀번호는 8자 이상이어야 합니다' });
   }
   const [existing] = await pool.execute('SELECT id FROM users WHERE email = ?', [email]);
   if (existing.length) return res.status(409).json({ error: '이미 사용 중인 이메일입니다' });
@@ -291,6 +298,50 @@ app.delete('/api/favorites/:id', optionalAuth, asyncHandler(async (req, res) => 
   const userId = req.user?.id ?? null;
   await pool.execute('DELETE FROM favorite_cities WHERE id = ? AND user_id <=> ?', [id, userId]);
   res.json({ success: true });
+}));
+
+// ── AI 코디 추천 ───────────────────────────
+
+app.post('/api/ai/outfit', asyncHandler(async (req, res) => {
+  const { city, temperature, feelsLike, condition, description, humidity, windSpeed, precipProb, uvIndex } = req.body;
+
+  if (!city || temperature === undefined) {
+    return res.status(400).json({ error: '날씨 데이터가 필요합니다' });
+  }
+
+  const prompt = `현재 날씨 정보를 바탕으로 오늘 입기 좋은 코디를 추천해 주세요.
+
+날씨 정보:
+- 도시: ${city}
+- 기온: ${Math.round(temperature)}°C (체감 ${Math.round(feelsLike ?? temperature)}°C)
+- 날씨: ${description}
+- 습도: ${humidity}%
+- 풍속: ${windSpeed} m/s
+- 강수확률: ${precipProb ?? 0}%
+- 자외선 지수: ${uvIndex ?? 0}
+
+다음 형식으로 간결하게 답변해 주세요 (총 3~5문장):
+1. 날씨 한 줄 요약
+2. 추천 의상 (상의/하의/겉옷/신발 순으로 구체적으로)
+3. 오늘 날씨에 맞는 생활 팁 1가지`;
+
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Transfer-Encoding', 'chunked');
+  res.setHeader('Cache-Control', 'no-cache');
+
+  const stream = await anthropic.messages.stream({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 512,
+    messages: [{ role: 'user', content: prompt }],
+  });
+
+  for await (const chunk of stream) {
+    if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+      res.write(chunk.delta.text);
+    }
+  }
+
+  res.end();
 }));
 
 // ── 전역 에러 핸들러 ────────────────────────

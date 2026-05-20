@@ -22,6 +22,7 @@ class _LoginBottomSheetState extends State<LoginBottomSheet>
   bool _loading = false;
 
   final GoogleSignIn _googleSignIn = GoogleSignIn(
+    clientId: '440354179334-1fq5m5uaqj9kin549lga5gpvd6cscvei.apps.googleusercontent.com',
     scopes: ['email', 'profile'],
   );
 
@@ -77,6 +78,10 @@ class _LoginBottomSheetState extends State<LoginBottomSheet>
     final username = _usernameController.text.trim();
     if (email.isEmpty || password.isEmpty || username.isEmpty) {
       setState(() => _errorMsg = '모든 항목을 입력해주세요.');
+      return;
+    }
+    if (password.length < 8) {
+      setState(() => _errorMsg = '비밀번호는 8자 이상이어야 합니다.');
       return;
     }
     setState(() {
@@ -320,6 +325,7 @@ class _LoginBottomSheetState extends State<LoginBottomSheet>
           controller: _passwordController,
           label: '비밀번호',
           obscure: _obscurePassword,
+          helperText: '8자 이상 입력해주세요',
           suffixIcon: IconButton(
             icon: Icon(
                 _obscurePassword ? Icons.visibility_off : Icons.visibility,
@@ -363,6 +369,7 @@ class _InputField extends StatelessWidget {
   final TextInputType? keyboardType;
   final bool obscure;
   final Widget? suffixIcon;
+  final String? helperText;
 
   const _InputField({
     required this.controller,
@@ -370,6 +377,7 @@ class _InputField extends StatelessWidget {
     this.keyboardType,
     this.obscure = false,
     this.suffixIcon,
+    this.helperText,
   });
 
   @override
@@ -396,6 +404,8 @@ class _InputField extends StatelessWidget {
           borderSide: const BorderSide(color: Colors.purple),
         ),
         suffixIcon: suffixIcon,
+        helperText: helperText,
+        helperStyle: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
       ),
     );
   }
