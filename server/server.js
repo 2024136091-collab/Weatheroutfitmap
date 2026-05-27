@@ -78,12 +78,37 @@ async function initDB() {
       )
     `);
     for (const col of [
-      "ADD COLUMN name  VARCHAR(100) NOT NULL DEFAULT ''",
-      "ADD COLUMN age   VARCHAR(20)  NOT NULL DEFAULT '20대'",
-      "ADD COLUMN style VARCHAR(50)  NOT NULL DEFAULT '캐주얼'",
+      "ADD COLUMN name                   VARCHAR(100) NOT NULL DEFAULT ''",
+      "ADD COLUMN age                    VARCHAR(20)  NOT NULL DEFAULT '20대'",
+      "ADD COLUMN style                  VARCHAR(50)  NOT NULL DEFAULT '캐주얼'",
+      "ADD COLUMN profile_image          VARCHAR(500) NULL",
+      "ADD COLUMN withdrawal_requested_at DATETIME    NULL",
     ]) {
       await conn.execute(`ALTER TABLE users ${col}`).catch(() => {});
     }
+
+    // 30일 경과한 탈퇴 신청 계정 자동 삭제
+    const [pendingUsers] = await conn.execute(
+      `SELECT id FROM users WHERE withdrawal_requested_at IS NOT NULL
+       AND withdrawal_requested_at <= DATE_SUB(NOW(), INTERVAL 30 DAY)`
+    );
+    for (const u of pendingUsers) {
+      const [items] = await conn.execute('SELECT image_url FROM closet_items WHERE user_id = ?', [u.id]);
+      for (const item of items) {
+        const fp = path.join(__dirname, item.image_url);
+        if (fs.existsSync(fp)) fs.unlinkSync(fp);
+      }
+      const [uRow] = await conn.execute('SELECT profile_image FROM users WHERE id = ?', [u.id]);
+      if (uRow.length && uRow[0].profile_image) {
+        const fp = path.join(__dirname, uRow[0].profile_image);
+        if (fs.existsSync(fp)) fs.unlinkSync(fp);
+      }
+      await conn.execute('DELETE FROM closet_items WHERE user_id = ?', [u.id]);
+      await conn.execute('DELETE FROM search_history WHERE user_id = ?', [u.id]);
+      await conn.execute('DELETE FROM favorite_cities WHERE user_id = ?', [u.id]);
+      await conn.execute('DELETE FROM users WHERE id = ?', [u.id]);
+    }
+    if (pendingUsers.length) console.log(`만료된 탈퇴 계정 ${pendingUsers.length}개 삭제 완료`);
 
     await conn.execute(`
       CREATE TABLE IF NOT EXISTS closet_items (
@@ -211,8 +236,8 @@ app.post('/auth/register', asyncHandler(async (req, res) => {
 
   const hash = await bcrypt.hash(password, 10);
   const [result] = await pool.execute(
-    'INSERT INTO users (email, password, name, age, style, provider) VALUES (?, ?, ?, ?, ?, "local")',
-    [email.trim(), hash, name.trim(), age, style]
+    'INSERT INTO users (email, password, username, name, age, style, provider) VALUES (?, ?, ?, ?, ?, ?, "local")',
+    [email.trim(), hash, name.trim(), name.trim(), age, style]
   );
   const token = issueToken({ id: result.insertId, email: email.trim() });
   res.json({ token, name: name.trim(), email: email.trim(), age, style });
@@ -239,15 +264,29 @@ app.post('/auth/login', asyncHandler(async (req, res) => {
     email: user.email,
     age: user.age || '20대',
     style: user.style || '캐주얼',
+    withdrawal_requested_at: user.withdrawal_requested_at || null,
   });
 }));
 
 app.get('/auth/me', authMiddleware, asyncHandler(async (req, res) => {
   const [rows] = await pool.execute(
-    'SELECT name, email, age, style FROM users WHERE id = ?', [req.user.id]
+    'SELECT name, email, age, style, profile_image, withdrawal_requested_at FROM users WHERE id = ?',
+    [req.user.id]
   );
   if (!rows.length) return res.status(401).json({ detail: '사용자를 찾을 수 없습니다' });
   res.json(rows[0]);
+}));
+
+app.post('/auth/profile-image', authMiddleware, upload.single('image'), asyncHandler(async (req, res) => {
+  if (!req.file) return res.status(400).json({ detail: '이미지를 선택해주세요' });
+  const imageUrl = `/uploads/${req.file.filename}`;
+  const [rows] = await pool.execute('SELECT profile_image FROM users WHERE id = ?', [req.user.id]);
+  if (rows.length && rows[0].profile_image) {
+    const old = path.join(__dirname, rows[0].profile_image);
+    if (fs.existsSync(old)) fs.unlinkSync(old);
+  }
+  await pool.execute('UPDATE users SET profile_image = ? WHERE id = ?', [imageUrl, req.user.id]);
+  res.json({ profile_image: imageUrl });
 }));
 
 app.put('/auth/profile', authMiddleware, asyncHandler(async (req, res) => {
@@ -278,15 +317,17 @@ app.put('/auth/password', authMiddleware, asyncHandler(async (req, res) => {
 
 app.delete('/auth/withdraw', authMiddleware, asyncHandler(async (req, res) => {
   const userId = req.user.id;
-  const [items] = await pool.execute('SELECT image_url FROM closet_items WHERE user_id = ?', [userId]);
-  for (const item of items) {
-    const filePath = path.join(__dirname, item.image_url);
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  const [rows] = await pool.execute('SELECT withdrawal_requested_at FROM users WHERE id = ?', [userId]);
+  if (!rows.length) return res.status(404).json({ detail: '사용자를 찾을 수 없습니다' });
+  if (rows[0].withdrawal_requested_at) {
+    return res.status(409).json({ detail: '이미 탈퇴 신청이 처리 중입니다' });
   }
-  await pool.execute('DELETE FROM closet_items WHERE user_id = ?', [userId]);
-  await pool.execute('DELETE FROM search_history WHERE user_id = ?', [userId]);
-  await pool.execute('DELETE FROM favorite_cities WHERE user_id = ?', [userId]);
-  await pool.execute('DELETE FROM users WHERE id = ?', [userId]);
+  await pool.execute('UPDATE users SET withdrawal_requested_at = NOW() WHERE id = ?', [userId]);
+  res.json({ success: true, message: '탈퇴 신청이 완료됐습니다. 30일 후 계정이 완전히 삭제됩니다.' });
+}));
+
+app.post('/auth/withdraw/cancel', authMiddleware, asyncHandler(async (req, res) => {
+  await pool.execute('UPDATE users SET withdrawal_requested_at = NULL WHERE id = ?', [req.user.id]);
   res.json({ success: true });
 }));
 

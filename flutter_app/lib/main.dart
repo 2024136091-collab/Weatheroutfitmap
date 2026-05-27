@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'dart:convert';
 import 'package:intl/intl.dart';
 import 'package:geolocator/geolocator.dart';
@@ -267,6 +268,8 @@ class MainScreen extends StatefulWidget {
   final String userEmail;
   final String userAge;
   final String userStyle;
+  final String? profileImage;
+  final String? withdrawalRequestedAt;
 
   const MainScreen({
     super.key,
@@ -275,6 +278,8 @@ class MainScreen extends StatefulWidget {
     this.userEmail = '',
     this.userAge = '20대',
     this.userStyle = '캐주얼',
+    this.profileImage,
+    this.withdrawalRequestedAt,
   });
 
   @override
@@ -290,6 +295,8 @@ class _MainScreenState extends State<MainScreen> {
   late String _userEmail;
   late String _userAge;
   late String _userStyle;
+  String? _profileImage;
+  DateTime? _withdrawalRequestedAt;
 
   bool get _isLoggedIn => _token.isNotEmpty;
 
@@ -390,6 +397,10 @@ class _MainScreenState extends State<MainScreen> {
     _userEmail = widget.userEmail;
     _userAge = widget.userAge;
     _userStyle = widget.userStyle;
+    _profileImage = widget.profileImage;
+    if (widget.withdrawalRequestedAt != null) {
+      _withdrawalRequestedAt = DateTime.tryParse(widget.withdrawalRequestedAt!);
+    }
     _initLocationAndFetch();
   }
 
@@ -544,6 +555,36 @@ class _MainScreenState extends State<MainScreen> {
   // ==========================================
   // 👤 [프로필] 수정 및 로그아웃
   // ==========================================
+  Future<void> _uploadProfileImage() async {
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+    if (picked == null) return;
+
+    final bytes = await picked.readAsBytes();
+    final ext = picked.name.split('.').last.toLowerCase();
+    final mime = ext == 'png' ? 'image/png' : 'image/jpeg';
+
+    final uri = Uri.parse('$_baseUrl/auth/profile-image');
+    final request = http.MultipartRequest('POST', uri)
+      ..headers['Authorization'] = 'Bearer $_token'
+      ..files.add(http.MultipartFile.fromBytes('image', bytes,
+          filename: picked.name,
+          contentType: MediaType('image', ext == 'png' ? 'png' : 'jpeg')));
+
+    final streamed = await request.send();
+    final body = await streamed.stream.bytesToString();
+    final data = jsonDecode(body);
+    if (streamed.statusCode == 200 && data['profile_image'] != null) {
+      setState(() => _profileImage = data['profile_image']);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(data['detail'] ?? '업로드 실패')),
+        );
+      }
+    }
+  }
+
   void _showEditProfileDialog() {
     String selectedAge = _userAge;
     String selectedStyle = _userStyle;
@@ -723,7 +764,9 @@ class _MainScreenState extends State<MainScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('회원탈퇴'),
-        content: const Text('탈퇴하면 모든 정보가 삭제되며\n복구할 수 없습니다. 탈퇴하시겠습니까?'),
+        content: const Text(
+          '탈퇴 신청 후 30일간 계정이 유지되며\n그 기간 내에 취소할 수 있습니다.\n30일 후 모든 정보가 영구 삭제됩니다.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -739,16 +782,10 @@ class _MainScreenState extends State<MainScreen> {
                   headers: {'Authorization': 'Bearer $_token'},
                 );
                 if (response.statusCode == 200 && mounted) {
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.remove('token');
-                  setState(() {
-                    _token = '';
-                    _userName = '';
-                    _userEmail = '';
-                    _userAge = '20대';
-                    _userStyle = '캐주얼';
-                    _selectedIndex = 0;
-                  });
+                  setState(() => _withdrawalRequestedAt = DateTime.now());
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('탈퇴 신청됐습니다. 30일 후 계정이 삭제됩니다.')),
+                  );
                 }
               } catch (_) {
                 if (mounted) {
@@ -758,11 +795,32 @@ class _MainScreenState extends State<MainScreen> {
                 }
               }
             },
-            child: const Text('탈퇴', style: TextStyle(color: Colors.white)),
+            child: const Text('탈퇴 신청', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _cancelWithdrawal() async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/auth/withdraw/cancel'),
+        headers: {'Authorization': 'Bearer $_token'},
+      );
+      if (response.statusCode == 200 && mounted) {
+        setState(() => _withdrawalRequestedAt = null);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('탈퇴 신청이 취소됐습니다.')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('서버와 연결할 수 없습니다.')),
+        );
+      }
+    }
   }
 
   Future<void> _logout() async {
@@ -1955,12 +2013,39 @@ class _MainScreenState extends State<MainScreen> {
 
         Row(
           children: [
-            CircleAvatar(
-              radius: 35,
-              backgroundColor: Colors.black,
-              child: Text(
-                _userName.isNotEmpty ? _userName[0].toUpperCase() : "?",
-                style: const TextStyle(color: Colors.white, fontSize: 24),
+            GestureDetector(
+              onTap: _isLoggedIn ? _uploadProfileImage : null,
+              child: Stack(
+                children: [
+                  CircleAvatar(
+                    radius: 35,
+                    backgroundColor: Colors.black,
+                    backgroundImage: (_profileImage != null && _profileImage!.isNotEmpty)
+                        ? NetworkImage('$_baseUrl$_profileImage')
+                        : null,
+                    child: (_profileImage == null || _profileImage!.isEmpty)
+                        ? Text(
+                            _userName.isNotEmpty ? _userName[0].toUpperCase() : "?",
+                            style: const TextStyle(color: Colors.white, fontSize: 24),
+                          )
+                        : null,
+                  ),
+                  if (_isLoggedIn)
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        width: 20,
+                        height: 20,
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 2)],
+                        ),
+                        child: const Icon(Icons.camera_alt, size: 13, color: Colors.black),
+                      ),
+                    ),
+                ],
               ),
             ),
             const SizedBox(width: 20),
@@ -2078,6 +2163,35 @@ class _MainScreenState extends State<MainScreen> {
         const Divider(height: 1, color: Colors.black12),
         const SizedBox(height: 10),
 
+        if (_withdrawalRequestedAt != null) ...[
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.red.shade50,
+              border: Border.all(color: Colors.red.shade200),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.warning_amber_rounded, color: Colors.red, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '탈퇴 신청 중 · ${_withdrawalRequestedAt!.add(const Duration(days: 30)).difference(DateTime.now()).inDays + 1}일 후 계정 삭제',
+                    style: const TextStyle(color: Colors.red, fontSize: 13),
+                  ),
+                ),
+                TextButton(
+                  onPressed: _cancelWithdrawal,
+                  style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                  child: const Text('취소', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
+
         TextButton(
           onPressed: _logout,
           child: const Text(
@@ -2085,13 +2199,14 @@ class _MainScreenState extends State<MainScreen> {
             style: TextStyle(color: Colors.grey, fontSize: 16),
           ),
         ),
-        TextButton(
-          onPressed: _showWithdrawDialog,
-          child: const Text(
-            "회원탈퇴",
-            style: TextStyle(color: Colors.red, fontSize: 14),
+        if (_withdrawalRequestedAt == null)
+          TextButton(
+            onPressed: _showWithdrawDialog,
+            child: const Text(
+              "회원탈퇴",
+              style: TextStyle(color: Colors.red, fontSize: 14),
+            ),
           ),
-        ),
       ],
     );
   }
@@ -2171,6 +2286,8 @@ class _AuthWrapperState extends State<AuthWrapper> {
                 userEmail: data['email'],
                 userAge: data['age'],
                 userStyle: data['style'],
+                profileImage: data['profile_image'],
+                withdrawalRequestedAt: data['withdrawal_requested_at']?.toString(),
               ),
             ),
           );
@@ -2245,6 +2362,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   userEmail: data['email'],
                   userAge: data['age'],
                   userStyle: data['style'],
+                  profileImage: data['profile_image'],
+                  withdrawalRequestedAt: data['withdrawal_requested_at']?.toString(),
                 ),
               ),
             );
@@ -2441,6 +2560,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   userEmail: data['email'],
                   userAge: data['age'],
                   userStyle: data['style'],
+                  profileImage: data['profile_image'],
+                  withdrawalRequestedAt: data['withdrawal_requested_at']?.toString(),
                 ),
               ),
               (route) => false,
