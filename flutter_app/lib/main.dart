@@ -36,10 +36,11 @@ class Product {
 }
 
 class CartItem {
+  int? serverId;
   final Product product;
   String size;
   int quantity;
-  CartItem({required this.product, required this.size, this.quantity = 1});
+  CartItem({this.serverId, required this.product, required this.size, this.quantity = 1});
 }
 
 // ============================================================
@@ -372,15 +373,145 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  void _addToCart(Product product, String size) {
-    final existing = _cartItems.indexWhere(
-      (c) => c.product.id == product.id && c.size == size,
-    );
-    if (existing >= 0) {
-      setState(() => _cartItems[existing].quantity++);
-    } else {
-      setState(() => _cartItems.add(CartItem(product: product, size: size)));
+  Future<void> _loadCartFromServer() async {
+    if (!_isLoggedIn) return;
+    try {
+      final res = await http.get(
+        Uri.parse('$_baseUrl/cart'),
+        headers: {'Authorization': 'Bearer $_token'},
+      );
+      if (res.statusCode == 200) {
+        final List data = jsonDecode(utf8.decode(res.bodyBytes));
+        setState(() {
+          _cartItems.clear();
+          for (final row in data) {
+            final product = _allProducts.firstWhere(
+              (p) => p.id == row['product_id'],
+              orElse: () => Product(
+                id: row['product_id'],
+                name: row['name'],
+                brand: row['brand'] ?? '',
+                price: row['price'] ?? 0,
+                imageUrl: row['image_url'] ?? '',
+                category: '기타',
+                sizes: [row['size']],
+              ),
+            );
+            _cartItems.add(CartItem(
+              serverId: row['id'],
+              product: product,
+              size: row['size'],
+              quantity: row['quantity'],
+            ));
+          }
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _addToCart(Product product, String size) async {
+    if (!_isLoggedIn) return;
+    try {
+      final res = await http.post(
+        Uri.parse('$_baseUrl/cart'),
+        headers: {'Authorization': 'Bearer $_token', 'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'product_id': product.id,
+          'name': product.name,
+          'brand': product.brand,
+          'price': product.price,
+          'image_url': product.imageUrl,
+          'size': size,
+          'quantity': 1,
+        }),
+      );
+      if (res.statusCode == 200) {
+        final List data = jsonDecode(utf8.decode(res.bodyBytes));
+        setState(() {
+          _cartItems.clear();
+          for (final row in data) {
+            final p = _allProducts.firstWhere(
+              (p) => p.id == row['product_id'],
+              orElse: () => Product(
+                id: row['product_id'],
+                name: row['name'],
+                brand: row['brand'] ?? '',
+                price: row['price'] ?? 0,
+                imageUrl: row['image_url'] ?? '',
+                category: '기타',
+                sizes: [row['size']],
+              ),
+            );
+            _cartItems.add(CartItem(
+              serverId: row['id'],
+              product: p,
+              size: row['size'],
+              quantity: row['quantity'],
+            ));
+          }
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _updateCartQuantity(CartItem item, int newQuantity) async {
+    if (!_isLoggedIn || item.serverId == null) return;
+    try {
+      final res = await http.put(
+        Uri.parse('$_baseUrl/cart/${item.serverId}'),
+        headers: {'Authorization': 'Bearer $_token', 'Content-Type': 'application/json'},
+        body: jsonEncode({'quantity': newQuantity}),
+      );
+      if (res.statusCode == 200) {
+        final List data = jsonDecode(utf8.decode(res.bodyBytes));
+        _syncCartFromResponse(data);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _removeCartItem(CartItem item) async {
+    if (!_isLoggedIn || item.serverId == null) {
+      setState(() => _cartItems.remove(item));
+      return;
     }
+    try {
+      final res = await http.delete(
+        Uri.parse('$_baseUrl/cart/${item.serverId}'),
+        headers: {'Authorization': 'Bearer $_token'},
+      );
+      if (res.statusCode == 200) {
+        final List data = jsonDecode(utf8.decode(res.bodyBytes));
+        _syncCartFromResponse(data);
+      }
+    } catch (_) {
+      setState(() => _cartItems.remove(item));
+    }
+  }
+
+  void _syncCartFromResponse(List data) {
+    setState(() {
+      _cartItems.clear();
+      for (final row in data) {
+        final p = _allProducts.firstWhere(
+          (p) => p.id == row['product_id'],
+          orElse: () => Product(
+            id: row['product_id'],
+            name: row['name'],
+            brand: row['brand'] ?? '',
+            price: row['price'] ?? 0,
+            imageUrl: row['image_url'] ?? '',
+            category: '기타',
+            sizes: [row['size']],
+          ),
+        );
+        _cartItems.add(CartItem(
+          serverId: row['id'],
+          product: p,
+          size: row['size'],
+          quantity: row['quantity'],
+        ));
+      }
+    });
   }
 
   @override
@@ -402,6 +533,7 @@ class _MainScreenState extends State<MainScreen> {
       _withdrawalRequestedAt = DateTime.tryParse(widget.withdrawalRequestedAt!);
     }
     _initLocationAndFetch();
+    if (_isLoggedIn) _loadCartFromServer();
   }
 
   // ==========================================
@@ -856,6 +988,7 @@ class _MainScreenState extends State<MainScreen> {
           _selectedIndex = index;
         });
         fetchWeatherData();
+        _loadCartFromServer();
       }
       return;
     }
@@ -1681,27 +1814,10 @@ class _MainScreenState extends State<MainScreen> {
                         ),
                         onPressed: selectedSize == null
                             ? null
-                            : () {
-                                final existing = _cartItems.indexWhere(
-                                  (c) =>
-                                      c.product.id == product.id &&
-                                      c.size == selectedSize,
-                                );
-                                if (existing >= 0) {
-                                  setState(
-                                    () => _cartItems[existing].quantity++,
-                                  );
-                                } else {
-                                  setState(
-                                    () => _cartItems.add(
-                                      CartItem(
-                                        product: product,
-                                        size: selectedSize!,
-                                      ),
-                                    ),
-                                  );
-                                }
+                            : () async {
                                 Navigator.pop(sheetContext);
+                                await _addToCart(product, selectedSize!);
+                                if (!mainContext.mounted) return;
                                 ScaffoldMessenger.of(mainContext).showSnackBar(
                                   SnackBar(
                                     content: const Text('장바구니에 담았습니다.'),
@@ -1866,7 +1982,44 @@ class _MainScreenState extends State<MainScreen> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                     ),
-                    onPressed: () {},
+                    onPressed: () async {
+                      final res = await http.post(
+                        Uri.parse('$_baseUrl/orders'),
+                        headers: {'Authorization': 'Bearer $_token', 'Content-Type': 'application/json'},
+                        body: jsonEncode({
+                          'total_price': subtotal,
+                          'shipping': shipping,
+                          'items': _cartItems.map((c) => {
+                            'product_id': c.product.id,
+                            'name': c.product.name,
+                            'brand': c.product.brand,
+                            'price': c.product.price,
+                            'image_url': c.product.imageUrl,
+                            'size': c.size,
+                            'quantity': c.quantity,
+                          }).toList(),
+                        }),
+                      );
+                      if (res.statusCode == 200 && mounted) {
+                        setState(() => _cartItems.clear());
+                        showDialog(
+                          context: context,
+                          builder: (_) => AlertDialog(
+                            title: const Text('주문 완료'),
+                            content: const Text('주문이 접수됐습니다.\n마이탭 > 주문/배송 조회에서 확인하세요.'),
+                            actions: [
+                              TextButton(
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                  setState(() => _selectedIndex = 4);
+                                },
+                                child: const Text('주문 확인', style: TextStyle(color: Colors.black)),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+                    },
                     child: Text(
                       '${formatter.format(total)}원 결제하기',
                       style: const TextStyle(
@@ -1948,9 +2101,9 @@ class _MainScreenState extends State<MainScreen> {
                           GestureDetector(
                             onTap: () {
                               if (item.quantity > 1) {
-                                setState(() => item.quantity--);
+                                _updateCartQuantity(item, item.quantity - 1);
                               } else {
-                                setState(() => _cartItems.remove(item));
+                                _removeCartItem(item);
                               }
                             },
                             child: const Padding(
@@ -1963,7 +2116,7 @@ class _MainScreenState extends State<MainScreen> {
                             style: const TextStyle(fontSize: 14),
                           ),
                           GestureDetector(
-                            onTap: () => setState(() => item.quantity++),
+                            onTap: () => _updateCartQuantity(item, item.quantity + 1),
                             child: const Padding(
                               padding: EdgeInsets.symmetric(horizontal: 8),
                               child: Icon(Icons.add, size: 16),
@@ -1974,7 +2127,7 @@ class _MainScreenState extends State<MainScreen> {
                     ),
                     const Spacer(),
                     GestureDetector(
-                      onTap: () => setState(() => _cartItems.remove(item)),
+                      onTap: () => _removeCartItem(item),
                       child: const Icon(
                         Icons.delete_outline,
                         color: Colors.grey,
@@ -2092,7 +2245,15 @@ class _MainScreenState extends State<MainScreen> {
             MaterialPageRoute(builder: (_) => ClosetScreen(token: _token)),
           ),
         ),
-        _myMenuTile(Icons.inventory_2_outlined, "주문/배송 조회", badge: "2"),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.inventory_2_outlined, color: Colors.black87),
+          title: const Text("주문/배송 조회", style: TextStyle(fontSize: 16)),
+          trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => OrderListScreen(token: _token)),
+          ),
+        ),
         ListTile(
           contentPadding: EdgeInsets.zero,
           leading: const Icon(Icons.favorite_border, color: Colors.black87),
@@ -2143,7 +2304,15 @@ class _MainScreenState extends State<MainScreen> {
 
         const Text("설정", style: TextStyle(fontSize: 14, color: Colors.grey)),
         const SizedBox(height: 10),
-        _myMenuTile(Icons.notifications_none, "알림 설정"),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.notifications_none, color: Colors.black87),
+          title: const Text("알림 설정", style: TextStyle(fontSize: 16)),
+          trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => NotificationSettingsScreen(token: _token)),
+          ),
+        ),
         ListTile(
           contentPadding: EdgeInsets.zero,
           leading: const Icon(Icons.edit_outlined, color: Colors.black87),
@@ -4745,6 +4914,348 @@ class _WishlistCheckoutScreenState extends State<WishlistCheckoutScreen> {
         Text(label, style: const TextStyle(fontSize: 14, color: Colors.grey)),
         Text(value, style: const TextStyle(fontSize: 14)),
       ],
+    );
+  }
+}
+
+// ============================================================
+// 📦 OrderListScreen — 주문/배송 조회
+// ============================================================
+class OrderListScreen extends StatefulWidget {
+  final String token;
+  const OrderListScreen({super.key, required this.token});
+
+  @override
+  State<OrderListScreen> createState() => _OrderListScreenState();
+}
+
+class _OrderListScreenState extends State<OrderListScreen> {
+  bool _loading = true;
+  List<dynamic> _orders = [];
+
+  static const _steps = ['주문접수', '결제완료', '배송준비중', '배송중', '배송완료'];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+  }
+
+  Future<void> _fetch() async {
+    setState(() => _loading = true);
+    try {
+      final res = await http.get(
+        Uri.parse('$_baseUrl/orders'),
+        headers: {'Authorization': 'Bearer ${widget.token}'},
+      );
+      if (res.statusCode == 200) {
+        setState(() => _orders = jsonDecode(utf8.decode(res.bodyBytes)));
+      }
+    } catch (_) {}
+    setState(() => _loading = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        title: const Text('주문/배송 조회', style: TextStyle(color: Colors.black, fontWeight: FontWeight.w600)),
+        iconTheme: const IconThemeData(color: Colors.black),
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator(color: Colors.black))
+          : _orders.isEmpty
+              ? const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.inventory_2_outlined, size: 64, color: Colors.grey),
+                      SizedBox(height: 16),
+                      Text('주문 내역이 없습니다.', style: TextStyle(color: Colors.grey, fontSize: 16)),
+                    ],
+                  ),
+                )
+              : RefreshIndicator(
+                  color: Colors.black,
+                  onRefresh: _fetch,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.all(20),
+                    itemCount: _orders.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 16),
+                    itemBuilder: (_, i) => _orderCard(_orders[i]),
+                  ),
+                ),
+    );
+  }
+
+  Widget _orderCard(dynamic order) {
+    final formatter = NumberFormat('#,###');
+    final statusInfo = order['status_info'] as Map<String, dynamic>;
+    final step = statusInfo['step'] as int;
+    final label = statusInfo['label'] as String;
+    final items = order['items'] as List<dynamic>;
+    final createdAt = DateTime.tryParse(order['created_at'] ?? '') ?? DateTime.now();
+
+    final statusColor = step == 4
+        ? Colors.green
+        : step == 3
+            ? Colors.blue
+            : Colors.orange;
+
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.black12),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 헤더
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  DateFormat('yyyy.MM.dd HH:mm').format(createdAt),
+                  style: const TextStyle(fontSize: 13, color: Colors.grey),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: statusColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(label, style: TextStyle(fontSize: 12, color: statusColor, fontWeight: FontWeight.w600)),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: Colors.black12),
+
+          // 상품 목록
+          ...items.map((item) => Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Image.network(
+                    item['image_url'] ?? '',
+                    width: 56, height: 56, fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      width: 56, height: 56, color: Colors.grey[100],
+                      child: const Icon(Icons.image_not_supported_outlined, color: Colors.grey, size: 20),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(item['name'] ?? '', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      Text('${item['size']}  ·  ${item['quantity']}개', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                      Text('${formatter.format(item['price'])}원', style: const TextStyle(fontSize: 13)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          )),
+
+          const SizedBox(height: 14),
+          const Divider(height: 1, color: Colors.black12),
+
+          // 배송 타임라인
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('배송 현황', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 10),
+                Row(
+                  children: List.generate(_steps.length, (i) {
+                    final done = i <= step;
+                    final active = i == step;
+                    return Expanded(
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              children: [
+                                Container(
+                                  width: 18, height: 18,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: done ? Colors.black : Colors.grey[200],
+                                    border: Border.all(color: done ? Colors.black : Colors.grey[300]!),
+                                  ),
+                                  child: active
+                                      ? const Icon(Icons.circle, color: Colors.white, size: 8)
+                                      : done
+                                          ? const Icon(Icons.check, color: Colors.white, size: 11)
+                                          : null,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _steps[i],
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    color: done ? Colors.black : Colors.grey,
+                                    fontWeight: active ? FontWeight.bold : FontWeight.normal,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (i < _steps.length - 1)
+                            Container(
+                              height: 1,
+                              width: 12,
+                              color: i < step ? Colors.black : Colors.grey[300],
+                            ),
+                        ],
+                      ),
+                    );
+                  }),
+                ),
+              ],
+            ),
+          ),
+
+          // 합계
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('총 결제금액', style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+                Text(
+                  '${formatter.format((order['total_price'] ?? 0) + (order['shipping'] ?? 0))}원',
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================
+// 🔔 NotificationSettingsScreen — 알림 설정
+// ============================================================
+class NotificationSettingsScreen extends StatefulWidget {
+  final String token;
+  const NotificationSettingsScreen({super.key, required this.token});
+
+  @override
+  State<NotificationSettingsScreen> createState() => _NotificationSettingsScreenState();
+}
+
+class _NotificationSettingsScreenState extends State<NotificationSettingsScreen> {
+  bool _loading = true;
+  bool _weatherAlert = true;
+  bool _styleTips = true;
+  bool _orderUpdates = true;
+  bool _promotions = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+  }
+
+  Future<void> _fetch() async {
+    try {
+      final res = await http.get(
+        Uri.parse('$_baseUrl/notifications/settings'),
+        headers: {'Authorization': 'Bearer ${widget.token}'},
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(res.bodyBytes));
+        setState(() {
+          _weatherAlert  = (data['weather_alert']  ?? 1) == 1;
+          _styleTips     = (data['style_tips']      ?? 1) == 1;
+          _orderUpdates  = (data['order_updates']   ?? 1) == 1;
+          _promotions    = (data['promotions']      ?? 0) == 1;
+        });
+      }
+    } catch (_) {}
+    setState(() => _loading = false);
+  }
+
+  Future<void> _save() async {
+    try {
+      await http.put(
+        Uri.parse('$_baseUrl/notifications/settings'),
+        headers: {'Authorization': 'Bearer ${widget.token}', 'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'weather_alert': _weatherAlert,
+          'style_tips': _styleTips,
+          'order_updates': _orderUpdates,
+          'promotions': _promotions,
+        }),
+      );
+    } catch (_) {}
+  }
+
+  Widget _tile(IconData icon, String title, String subtitle, bool value, ValueChanged<bool> onChanged) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Container(
+        width: 40, height: 40,
+        decoration: BoxDecoration(color: Colors.grey[100], shape: BoxShape.circle),
+        child: Icon(icon, color: Colors.black87, size: 20),
+      ),
+      title: Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+      subtitle: Text(subtitle, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+      trailing: Switch(
+        value: value,
+        onChanged: (v) {
+          setState(() => onChanged(v));
+          _save();
+        },
+        activeColor: Colors.black,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        title: const Text('알림 설정', style: TextStyle(color: Colors.black, fontWeight: FontWeight.w600)),
+        iconTheme: const IconThemeData(color: Colors.black),
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator(color: Colors.black))
+          : ListView(
+              padding: const EdgeInsets.all(20),
+              children: [
+                const Text('날씨 알림', style: TextStyle(fontSize: 13, color: Colors.grey)),
+                const SizedBox(height: 8),
+                _tile(Icons.wb_sunny_outlined, '날씨 알림', '오늘의 날씨 변화를 알려드립니다', _weatherAlert, (v) => _weatherAlert = v),
+                _tile(Icons.style_outlined, '스타일 팁', '날씨에 맞는 스타일 추천을 받아보세요', _styleTips, (v) => _styleTips = v),
+                const SizedBox(height: 24),
+                const Divider(height: 1, color: Colors.black12),
+                const SizedBox(height: 24),
+                const Text('쇼핑 알림', style: TextStyle(fontSize: 13, color: Colors.grey)),
+                const SizedBox(height: 8),
+                _tile(Icons.local_shipping_outlined, '주문·배송 알림', '주문 상태 변경 시 알려드립니다', _orderUpdates, (v) => _orderUpdates = v),
+                _tile(Icons.campaign_outlined, '이벤트·프로모션', '특가 혜택 및 이벤트 소식을 알려드립니다', _promotions, (v) => _promotions = v),
+              ],
+            ),
     );
   }
 }

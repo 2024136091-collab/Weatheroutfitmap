@@ -126,6 +126,60 @@ async function initDB() {
     `);
 
     await conn.execute(`
+      CREATE TABLE IF NOT EXISTS cart_items (
+        id          INT AUTO_INCREMENT PRIMARY KEY,
+        user_id     INT NOT NULL,
+        product_id  VARCHAR(50) NOT NULL,
+        name        VARCHAR(200) NOT NULL,
+        brand       VARCHAR(100) NOT NULL DEFAULT '',
+        price       INT NOT NULL DEFAULT 0,
+        image_url   VARCHAR(500) NOT NULL DEFAULT '',
+        size        VARCHAR(20) NOT NULL,
+        quantity    INT NOT NULL DEFAULT 1,
+        created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_user_product_size (user_id, product_id, size)
+      )
+    `);
+
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS orders (
+        id          INT AUTO_INCREMENT PRIMARY KEY,
+        user_id     INT NOT NULL,
+        total_price INT NOT NULL DEFAULT 0,
+        shipping    INT NOT NULL DEFAULT 0,
+        status      ENUM('pending','paid','preparing','shipping','delivered','cancelled')
+                    NOT NULL DEFAULT 'pending',
+        created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        KEY idx_user (user_id)
+      )
+    `);
+
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS order_items (
+        id          INT AUTO_INCREMENT PRIMARY KEY,
+        order_id    INT NOT NULL,
+        product_id  VARCHAR(50) NOT NULL,
+        name        VARCHAR(200) NOT NULL,
+        brand       VARCHAR(100) NOT NULL DEFAULT '',
+        price       INT NOT NULL DEFAULT 0,
+        image_url   VARCHAR(500) NOT NULL DEFAULT '',
+        size        VARCHAR(20) NOT NULL,
+        quantity    INT NOT NULL DEFAULT 1,
+        KEY idx_order (order_id)
+      )
+    `);
+
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS notification_settings (
+        user_id       INT PRIMARY KEY,
+        weather_alert TINYINT NOT NULL DEFAULT 1,
+        style_tips    TINYINT NOT NULL DEFAULT 1,
+        order_updates TINYINT NOT NULL DEFAULT 1,
+        promotions    TINYINT NOT NULL DEFAULT 0
+      )
+    `);
+
+    await conn.execute(`
       CREATE TABLE IF NOT EXISTS search_history (
         id          INT AUTO_INCREMENT PRIMARY KEY,
         user_id     INT NULL,
@@ -328,6 +382,139 @@ app.delete('/auth/withdraw', authMiddleware, asyncHandler(async (req, res) => {
 
 app.post('/auth/withdraw/cancel', authMiddleware, asyncHandler(async (req, res) => {
   await pool.execute('UPDATE users SET withdrawal_requested_at = NULL WHERE id = ?', [req.user.id]);
+  res.json({ success: true });
+}));
+
+// ── 장바구니 ───────────────────────────────
+
+app.get('/cart', authMiddleware, asyncHandler(async (req, res) => {
+  const [rows] = await pool.execute(
+    'SELECT * FROM cart_items WHERE user_id = ? ORDER BY created_at ASC',
+    [req.user.id]
+  );
+  res.json(rows);
+}));
+
+app.post('/cart', authMiddleware, asyncHandler(async (req, res) => {
+  const { product_id, name, brand, price, image_url, size, quantity = 1 } = req.body;
+  if (!product_id || !name || !size) {
+    return res.status(400).json({ detail: '상품 정보가 올바르지 않습니다' });
+  }
+  const [result] = await pool.execute(
+    `INSERT INTO cart_items (user_id, product_id, name, brand, price, image_url, size, quantity)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE quantity = quantity + VALUES(quantity)`,
+    [req.user.id, product_id, name, brand || '', price || 0, image_url || '', size, quantity]
+  );
+  const [rows] = await pool.execute('SELECT * FROM cart_items WHERE user_id = ?', [req.user.id]);
+  res.json(rows);
+}));
+
+app.put('/cart/:id', authMiddleware, asyncHandler(async (req, res) => {
+  const { quantity } = req.body;
+  if (!quantity || quantity < 1) {
+    return res.status(400).json({ detail: '수량이 올바르지 않습니다' });
+  }
+  await pool.execute(
+    'UPDATE cart_items SET quantity = ? WHERE id = ? AND user_id = ?',
+    [quantity, req.params.id, req.user.id]
+  );
+  const [rows] = await pool.execute('SELECT * FROM cart_items WHERE user_id = ?', [req.user.id]);
+  res.json(rows);
+}));
+
+app.delete('/cart/:id', authMiddleware, asyncHandler(async (req, res) => {
+  await pool.execute('DELETE FROM cart_items WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
+  const [rows] = await pool.execute('SELECT * FROM cart_items WHERE user_id = ?', [req.user.id]);
+  res.json(rows);
+}));
+
+// ── 주문 ──────────────────────────────────
+
+function computeStatus(createdAt) {
+  const mins = (Date.now() - new Date(createdAt).getTime()) / 60000;
+  if (mins < 10)   return { code: 'pending',   label: '주문접수',    step: 0 };
+  if (mins < 60)   return { code: 'paid',       label: '결제완료',    step: 1 };
+  if (mins < 1440) return { code: 'preparing',  label: '배송준비중',  step: 2 };
+  if (mins < 4320) return { code: 'shipping',   label: '배송중',      step: 3 };
+  return              { code: 'delivered',   label: '배송완료',    step: 4 };
+}
+
+app.post('/orders', authMiddleware, asyncHandler(async (req, res) => {
+  const { items, total_price, shipping } = req.body;
+  if (!items || !items.length) return res.status(400).json({ detail: '주문 상품이 없습니다' });
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [orderResult] = await conn.execute(
+      'INSERT INTO orders (user_id, total_price, shipping) VALUES (?, ?, ?)',
+      [req.user.id, total_price || 0, shipping || 0]
+    );
+    const orderId = orderResult.insertId;
+    for (const item of items) {
+      await conn.execute(
+        'INSERT INTO order_items (order_id, product_id, name, brand, price, image_url, size, quantity) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [orderId, item.product_id, item.name, item.brand || '', item.price || 0, item.image_url || '', item.size, item.quantity]
+      );
+    }
+    await conn.execute('DELETE FROM cart_items WHERE user_id = ?', [req.user.id]);
+    await conn.commit();
+    res.json({ order_id: orderId, success: true });
+  } catch (e) {
+    await conn.rollback();
+    throw e;
+  } finally {
+    conn.release();
+  }
+}));
+
+app.get('/orders', authMiddleware, asyncHandler(async (req, res) => {
+  const [orders] = await pool.execute(
+    'SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC',
+    [req.user.id]
+  );
+  const [allItems] = await pool.execute(
+    'SELECT oi.* FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.user_id = ?',
+    [req.user.id]
+  );
+  const result = orders.map(o => ({
+    ...o,
+    status_info: computeStatus(o.created_at),
+    items: allItems.filter(i => i.order_id === o.id),
+  }));
+  res.json(result);
+}));
+
+// ── 알림 설정 ──────────────────────────────
+
+app.get('/notifications/settings', authMiddleware, asyncHandler(async (req, res) => {
+  const [rows] = await pool.execute(
+    'SELECT * FROM notification_settings WHERE user_id = ?', [req.user.id]
+  );
+  if (!rows.length) {
+    await pool.execute(
+      'INSERT INTO notification_settings (user_id) VALUES (?)', [req.user.id]
+    );
+    return res.json({ weather_alert: 1, style_tips: 1, order_updates: 1, promotions: 0 });
+  }
+  res.json(rows[0]);
+}));
+
+app.put('/notifications/settings', authMiddleware, asyncHandler(async (req, res) => {
+  const { weather_alert, style_tips, order_updates, promotions } = req.body;
+  await pool.execute(
+    `INSERT INTO notification_settings (user_id, weather_alert, style_tips, order_updates, promotions)
+     VALUES (?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       weather_alert = VALUES(weather_alert),
+       style_tips    = VALUES(style_tips),
+       order_updates = VALUES(order_updates),
+       promotions    = VALUES(promotions)`,
+    [req.user.id,
+     weather_alert ? 1 : 0, style_tips ? 1 : 0,
+     order_updates ? 1 : 0, promotions ? 1 : 0]
+  );
   res.json({ success: true });
 }));
 
