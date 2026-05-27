@@ -16,18 +16,15 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-prod';
 const app = express();
 
 const ALLOWED_ORIGINS = [
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'http://localhost:5175',
-  'http://localhost:5176',
   ...(process.env.CLIENT_ORIGIN ? [process.env.CLIENT_ORIGIN] : []),
 ];
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) cb(null, true);
-    else cb(new Error('CORS 차단: ' + origin));
+    if (!origin || /^http:\/\/localhost(:\d+)?$/.test(origin) || ALLOWED_ORIGINS.includes(origin)) {
+      cb(null, true);
+    } else {
+      cb(new Error('CORS 차단: ' + origin));
+    }
   },
 }));
 app.use(express.json());
