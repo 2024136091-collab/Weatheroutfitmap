@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.weathercodi" "\0"
-            VALUE "FileDescription", "weather_codi" "\0"
+            VALUE "CompanyName", "com.example" "\0"
+            VALUE "FileDescription", "weather_outfit_app" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "weather_codi" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.weathercodi. All rights reserved." "\0"
-            VALUE "OriginalFilename", "weather_codi.exe" "\0"
-            VALUE "ProductName", "weather_codi" "\0"
+            VALUE "InternalName", "weather_outfit_app" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
+            VALUE "OriginalFilename", "weather_outfit_app.exe" "\0"
+            VALUE "ProductName", "weather_outfit_app" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

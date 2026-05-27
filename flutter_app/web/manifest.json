@@ -1,11 +1,11 @@
 {
-    "name": "weather_codi",
-    "short_name": "weather_codi",
+    "name": "Weather Style",
+    "short_name": "WeatherStyle",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#FFFFFF",
+    "theme_color": "#000000",
+    "description": "날씨에 맞는 스타일 추천 앱",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

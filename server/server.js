@@ -4,18 +4,24 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
+const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const Anthropic = require('@anthropic-ai/sdk');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-prod';
 
 const app = express();
+
 const ALLOWED_ORIGINS = [
   'http://localhost:3000',
   'http://localhost:3001',
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:5175',
+  'http://localhost:5176',
   ...(process.env.CLIENT_ORIGIN ? [process.env.CLIENT_ORIGIN] : []),
 ];
 app.use(cors({
@@ -26,8 +32,22 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// ── DB 연결 풀 ─────────────────────────────
+// ── 파일 업로드 설정 ────────────────────────
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadsDir),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname) || '.jpg';
+    cb(null, `${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
+  },
+});
+const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
+
+app.use('/uploads', express.static(uploadsDir));
+
+// ── DB 연결 풀 ─────────────────────────────
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   port: Number(process.env.DB_PORT) || 3306,
@@ -39,10 +59,47 @@ const pool = mysql.createPool({
 });
 
 // ── DB 초기화 ──────────────────────────────
-
 async function initDB() {
   const conn = await pool.getConnection();
   try {
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS users (
+        id          INT AUTO_INCREMENT PRIMARY KEY,
+        email       VARCHAR(255) NOT NULL,
+        password    VARCHAR(255),
+        name        VARCHAR(100) NOT NULL DEFAULT '',
+        age         VARCHAR(20)  NOT NULL DEFAULT '20대',
+        style       VARCHAR(50)  NOT NULL DEFAULT '캐주얼',
+        provider    ENUM('local','google') NOT NULL DEFAULT 'local',
+        provider_id VARCHAR(255),
+        created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_email (email),
+        UNIQUE KEY uq_provider (provider, provider_id)
+      )
+    `);
+    for (const col of [
+      "ADD COLUMN name  VARCHAR(100) NOT NULL DEFAULT ''",
+      "ADD COLUMN age   VARCHAR(20)  NOT NULL DEFAULT '20대'",
+      "ADD COLUMN style VARCHAR(50)  NOT NULL DEFAULT '캐주얼'",
+    ]) {
+      await conn.execute(`ALTER TABLE users ${col}`).catch(() => {});
+    }
+
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS closet_items (
+        id          INT AUTO_INCREMENT PRIMARY KEY,
+        user_id     INT NOT NULL,
+        image_url   VARCHAR(500) NOT NULL,
+        category    VARCHAR(50)  NOT NULL DEFAULT '기타',
+        description VARCHAR(200) NOT NULL DEFAULT '',
+        color       VARCHAR(50)  NOT NULL DEFAULT '',
+        style       VARCHAR(50)  NOT NULL DEFAULT '',
+        season      VARCHAR(20)  NOT NULL DEFAULT '사계절',
+        created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        KEY idx_user (user_id)
+      )
+    `);
+
     await conn.execute(`
       CREATE TABLE IF NOT EXISTS search_history (
         id          INT AUTO_INCREMENT PRIMARY KEY,
@@ -52,7 +109,6 @@ async function initDB() {
         UNIQUE KEY uq_city_user (city, user_id)
       )
     `);
-    // 기존 테이블에 user_id 컬럼이 없으면 추가
     await conn.execute('ALTER TABLE search_history ADD COLUMN user_id INT NULL').catch(() => {});
     await conn.execute('ALTER TABLE search_history ADD UNIQUE KEY uq_city_user (city, user_id)').catch(() => {});
 
@@ -66,41 +122,20 @@ async function initDB() {
         UNIQUE KEY uq_city_user (city, user_id)
       )
     `);
-    // 기존 테이블에 user_id 컬럼이 없으면 추가
     await conn.execute('ALTER TABLE favorite_cities ADD COLUMN user_id INT NULL').catch(() => {});
     await conn.execute('ALTER TABLE favorite_cities DROP KEY uq_city').catch(() => {});
     await conn.execute('ALTER TABLE favorite_cities ADD UNIQUE KEY uq_city_user (city, user_id)').catch(() => {});
-    await conn.execute(`
-      CREATE TABLE IF NOT EXISTS users (
-        id          INT AUTO_INCREMENT PRIMARY KEY,
-        email       VARCHAR(255) NOT NULL,
-        password    VARCHAR(255),
-        username    VARCHAR(100) NOT NULL,
-        provider    ENUM('local','google') NOT NULL DEFAULT 'local',
-        provider_id VARCHAR(255),
-        created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE KEY uq_email (email),
-        UNIQUE KEY uq_provider (provider, provider_id)
-      )
-    `);
-    // 기존 테이블 provider enum이 다를 경우 업데이트
-    await conn.execute(`
-      ALTER TABLE users
-        MODIFY COLUMN provider ENUM('local','google') NOT NULL DEFAULT 'local'
-    `).catch(() => {});
+
     console.log('DB 테이블 초기화 완료');
   } finally {
     conn.release();
   }
 }
 
-// ── 에러 핸들러 헬퍼 ────────────────────────
-
+// ── 헬퍼 ──────────────────────────────────
 function asyncHandler(fn) {
   return (req, res, next) => fn(req, res, next).catch(next);
 }
-
-// ── JWT 미들웨어 ───────────────────────────
 
 function optionalAuth(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
@@ -112,112 +147,272 @@ function optionalAuth(req, res, next) {
 
 function authMiddleware(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: '인증이 필요합니다' });
+  if (!token) return res.status(401).json({ detail: '인증이 필요합니다' });
   try {
     req.user = jwt.verify(token, JWT_SECRET);
     next();
   } catch {
-    res.status(401).json({ error: '유효하지 않은 토큰입니다' });
+    res.status(401).json({ detail: '유효하지 않은 토큰입니다' });
   }
 }
 
 function issueToken(user) {
-  return jwt.sign(
-    { id: user.id, email: user.email, username: user.username },
-    JWT_SECRET,
-    { expiresIn: '7d' }
-  );
+  return jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
 }
 
-// ── 인증 라우트 ────────────────────────────
+// ── WMO 날씨 코드 → 한국어 ─────────────────
+function wmoToKorean(code) {
+  if (code === 0) return '맑음';
+  if (code <= 3) return '구름 조금';
+  if (code <= 48) return '안개';
+  if (code <= 55) return '이슬비';
+  if (code <= 65) return '비';
+  if (code <= 75) return '눈';
+  if (code <= 82) return '소나기';
+  if (code >= 95) return '뇌우';
+  return '흐림';
+}
 
-// 회원가입
+// ── 인증 ──────────────────────────────────
+
 app.post('/auth/register', asyncHandler(async (req, res) => {
-  const { email, password, username } = req.body;
-  if (!email || !password || !username) {
-    return res.status(400).json({ error: '이메일, 비밀번호, 닉네임을 모두 입력해주세요' });
+  const { name, email, password, age = '20대', style = '캐주얼' } = req.body;
+  if (!name || !email || !password) {
+    return res.status(400).json({ detail: '이름, 이메일, 비밀번호를 모두 입력해주세요' });
   }
-  if (password.length < 8) {
-    return res.status(400).json({ error: '비밀번호는 8자 이상이어야 합니다' });
+  if (password.length < 6) {
+    return res.status(400).json({ detail: '비밀번호는 6자 이상이어야 합니다' });
   }
-  const [existing] = await pool.execute('SELECT id FROM users WHERE email = ?', [email]);
-  if (existing.length) return res.status(409).json({ error: '이미 사용 중인 이메일입니다' });
+  const [existing] = await pool.execute('SELECT id FROM users WHERE email = ?', [email.trim()]);
+  if (existing.length) return res.status(409).json({ detail: '이미 사용 중인 이메일입니다' });
 
   const hash = await bcrypt.hash(password, 10);
   const [result] = await pool.execute(
-    'INSERT INTO users (email, password, username, provider) VALUES (?, ?, ?, "local")',
-    [email.trim(), hash, username.trim()]
+    'INSERT INTO users (email, password, name, age, style, provider) VALUES (?, ?, ?, ?, ?, "local")',
+    [email.trim(), hash, name.trim(), age, style]
   );
-  const token = issueToken({ id: result.insertId, email, username });
-  res.json({ token, user: { id: result.insertId, email, username } });
+  const token = issueToken({ id: result.insertId, email: email.trim() });
+  res.json({ token, name: name.trim(), email: email.trim(), age, style });
 }));
 
-// 로그인
 app.post('/auth/login', asyncHandler(async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
-    return res.status(400).json({ error: '이메일과 비밀번호를 입력해주세요' });
+    return res.status(400).json({ detail: '이메일과 비밀번호를 입력해주세요' });
   }
-  const [rows] = await pool.execute('SELECT * FROM users WHERE email = ? AND provider = "local"', [email]);
-  if (!rows.length) return res.status(401).json({ error: '이메일 또는 비밀번호가 올바르지 않습니다' });
+  const [rows] = await pool.execute(
+    'SELECT * FROM users WHERE email = ? AND provider = "local"', [email.trim()]
+  );
+  if (!rows.length) return res.status(401).json({ detail: '이메일 또는 비밀번호가 올바르지 않습니다' });
 
   const user = rows[0];
   const ok = await bcrypt.compare(password, user.password);
-  if (!ok) return res.status(401).json({ error: '이메일 또는 비밀번호가 올바르지 않습니다' });
+  if (!ok) return res.status(401).json({ detail: '이메일 또는 비밀번호가 올바르지 않습니다' });
 
   const token = issueToken(user);
-  res.json({ token, user: { id: user.id, email: user.email, username: user.username } });
+  res.json({
+    token,
+    name: user.name || user.email.split('@')[0],
+    email: user.email,
+    age: user.age || '20대',
+    style: user.style || '캐주얼',
+  });
 }));
 
-// 구글 소셜 로그인
-app.post('/auth/social/google', asyncHandler(async (req, res) => {
-  const { credential, accessToken } = req.body;
-  if (!credential && !accessToken) return res.status(400).json({ error: '구글 토큰이 필요합니다' });
+app.get('/auth/me', authMiddleware, asyncHandler(async (req, res) => {
+  const [rows] = await pool.execute(
+    'SELECT name, email, age, style FROM users WHERE id = ?', [req.user.id]
+  );
+  if (!rows.length) return res.status(401).json({ detail: '사용자를 찾을 수 없습니다' });
+  res.json(rows[0]);
+}));
 
-  let providerId, email, username;
+app.put('/auth/profile', authMiddleware, asyncHandler(async (req, res) => {
+  const { age, style } = req.body;
+  if (!age || !style) return res.status(400).json({ detail: '연령대와 스타일을 입력해주세요' });
+  await pool.execute('UPDATE users SET age = ?, style = ? WHERE id = ?', [age, style, req.user.id]);
+  res.json({ success: true });
+}));
 
-  if (credential) {
-    // idToken 검증 (React 웹 / 모바일)
-    const { data } = await axios.get(
-      `https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`
-    );
-    providerId = data.sub;
-    email = data.email;
-    username = data.name || data.email.split('@')[0];
+app.put('/auth/password', authMiddleware, asyncHandler(async (req, res) => {
+  const { current_password, new_password } = req.body;
+  if (!current_password || !new_password) {
+    return res.status(400).json({ detail: '비밀번호를 입력해주세요' });
+  }
+  if (new_password.length < 6) {
+    return res.status(400).json({ detail: '새 비밀번호는 6자 이상이어야 합니다' });
+  }
+  const [rows] = await pool.execute('SELECT password FROM users WHERE id = ?', [req.user.id]);
+  if (!rows.length) return res.status(404).json({ detail: '사용자를 찾을 수 없습니다' });
+
+  const ok = await bcrypt.compare(current_password, rows[0].password);
+  if (!ok) return res.status(401).json({ detail: '현재 비밀번호가 올바르지 않습니다' });
+
+  const hash = await bcrypt.hash(new_password, 10);
+  await pool.execute('UPDATE users SET password = ? WHERE id = ?', [hash, req.user.id]);
+  res.json({ success: true });
+}));
+
+app.delete('/auth/withdraw', authMiddleware, asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const [items] = await pool.execute('SELECT image_url FROM closet_items WHERE user_id = ?', [userId]);
+  for (const item of items) {
+    const filePath = path.join(__dirname, item.image_url);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  }
+  await pool.execute('DELETE FROM closet_items WHERE user_id = ?', [userId]);
+  await pool.execute('DELETE FROM search_history WHERE user_id = ?', [userId]);
+  await pool.execute('DELETE FROM favorite_cities WHERE user_id = ?', [userId]);
+  await pool.execute('DELETE FROM users WHERE id = ?', [userId]);
+  res.json({ success: true });
+}));
+
+// ── 날씨 + AI 추천 ─────────────────────────
+
+app.get('/recommend-smart', optionalAuth, asyncHandler(async (req, res) => {
+  const { lat, lon, city: cityQuery } = req.query;
+  let latitude, longitude, cityName;
+
+  if (lat && lon) {
+    latitude = parseFloat(lat);
+    longitude = parseFloat(lon);
+    try {
+      const { data } = await axios.get(
+        `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`,
+        { headers: { 'User-Agent': 'WeatherStyleApp/1.0' }, timeout: 5000 }
+      );
+      cityName = data.address?.city || data.address?.county || data.address?.state || '내 위치';
+    } catch {
+      cityName = '내 위치';
+    }
   } else {
-    // accessToken 검증 (Flutter 웹)
+    const query = cityQuery || 'Seongnam';
     const { data } = await axios.get(
-      'https://www.googleapis.com/oauth2/v3/userinfo',
-      { headers: { Authorization: `Bearer ${accessToken}` } }
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=ko`,
+      { timeout: 5000 }
     );
-    providerId = data.sub;
-    email = data.email;
-    username = data.name || data.email.split('@')[0];
+    const result = data.results?.[0];
+    if (!result) return res.status(404).json({ detail: '도시를 찾을 수 없습니다' });
+    latitude = result.latitude;
+    longitude = result.longitude;
+    cityName = result.name;
   }
 
+  const { data: weatherData } = await axios.get(
+    `https://api.open-meteo.com/v1/forecast` +
+    `?latitude=${latitude}&longitude=${longitude}` +
+    `&current=temperature_2m,weathercode,windspeed_10m,relativehumidity_2m` +
+    `&timezone=Asia/Seoul`,
+    { timeout: 5000 }
+  );
+  const cur = weatherData.current;
+  const temperature = cur.temperature_2m;
+  const weatherStatus = wmoToKorean(cur.weathercode);
+  const humidity = cur.relativehumidity_2m;
+  const windSpeed = cur.windspeed_10m;
+
+  let userAge = '20대', userStyle = '캐주얼';
+  if (req.user) {
+    const [rows] = await pool.execute(
+      'SELECT age, style FROM users WHERE id = ?', [req.user.id]
+    );
+    if (rows.length) { userAge = rows[0].age; userStyle = rows[0].style; }
+  }
+
+  const aiRes = await anthropic.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 300,
+    messages: [{
+      role: 'user',
+      content: `현재 날씨: ${cityName}, ${temperature}°C, ${weatherStatus}, 습도 ${humidity}%, 풍속 ${windSpeed}m/s\n사용자: ${userAge} ${userStyle} 스타일\n날씨에 맞는 오늘의 코디를 3~4문장으로 추천해주세요.`,
+    }],
+  });
+
+  const seed = Math.abs(Math.floor(temperature * 10)) % 1000;
+  res.json({
+    city: cityName,
+    temperature,
+    weather_status: weatherStatus,
+    humidity,
+    wind_speed: windSpeed,
+    ai_recommendation: aiRes.content[0].text,
+    recommended_clothes: [
+      { image_url: `https://picsum.photos/seed/outfit${seed}/600/800` },
+    ],
+  });
+}));
+
+// ── 옷장 ──────────────────────────────────
+
+app.get('/closet', authMiddleware, asyncHandler(async (req, res) => {
   const [rows] = await pool.execute(
-    'SELECT * FROM users WHERE provider = "google" AND provider_id = ?', [providerId]
+    'SELECT id, image_url, category, description, color, style, season, created_at FROM closet_items WHERE user_id = ? ORDER BY created_at DESC',
+    [req.user.id]
+  );
+  res.json(rows);
+}));
+
+app.post('/closet/upload', authMiddleware, upload.single('file'), asyncHandler(async (req, res) => {
+  if (!req.file) return res.status(400).json({ detail: '파일이 없습니다' });
+
+  const imageUrl = `/uploads/${req.file.filename}`;
+  let category = '기타', description = '의류', color = '', style = '캐주얼', season = '사계절';
+
+  try {
+    const imageData = fs.readFileSync(req.file.path).toString('base64');
+    const ext = path.extname(req.file.filename).toLowerCase();
+    const mimeType = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+
+    const aiRes = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 200,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mimeType, data: imageData } },
+          { type: 'text', text: '이 옷을 분석해서 JSON만 반환하세요: {"category":"상의/하의/아우터/신발/악세서리/원피스/기타","description":"20자 이내 한국어 설명","color":"주요 색상","style":"캐주얼/스트릿/포멀/스포티/미니멀","season":"봄/여름/가을/겨울/사계절"}' },
+        ],
+      }],
+    });
+
+    const match = aiRes.content[0].text.match(/\{[\s\S]*?\}/);
+    if (match) {
+      const parsed = JSON.parse(match[0]);
+      category = parsed.category || category;
+      description = parsed.description || description;
+      color = parsed.color || color;
+      style = parsed.style || style;
+      season = parsed.season || season;
+    }
+  } catch (e) {
+    console.error('AI 분석 오류:', e.message);
+  }
+
+  const [result] = await pool.execute(
+    'INSERT INTO closet_items (user_id, image_url, category, description, color, style, season) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [req.user.id, imageUrl, category, description, color, style, season]
   );
 
-  let user;
-  if (rows.length) {
-    user = rows[0];
-  } else {
-    const [result] = await pool.execute(
-      'INSERT INTO users (email, username, provider, provider_id) VALUES (?, ?, "google", ?)',
-      [email, username, providerId]
-    );
-    user = { id: result.insertId, email, username };
-  }
-
-  const token = issueToken(user);
-  res.json({ token, user: { id: user.id, email: user.email, username: user.username } });
+  res.json({
+    message: '옷장에 추가됐어요!',
+    items: [{ id: result.insertId, image_url: imageUrl, category, description, color, style, season }],
+  });
 }));
 
-// 내 정보
-app.get('/auth/me', authMiddleware, (req, res) => {
-  res.json({ user: req.user });
-});
+app.delete('/closet/:id', authMiddleware, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ detail: '올바르지 않은 ID' });
+
+  const [rows] = await pool.execute(
+    'SELECT image_url FROM closet_items WHERE id = ? AND user_id = ?', [id, req.user.id]
+  );
+  if (rows.length) {
+    const filePath = path.join(__dirname, rows[0].image_url);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  }
+  await pool.execute('DELETE FROM closet_items WHERE id = ? AND user_id = ?', [id, req.user.id]);
+  res.json({ success: true });
+}));
 
 // ── 검색 기록 ──────────────────────────────
 
@@ -232,13 +427,10 @@ app.get('/api/history', optionalAuth, asyncHandler(async (req, res) => {
 
 app.post('/api/history', optionalAuth, asyncHandler(async (req, res) => {
   const { city } = req.body;
-  if (!city || typeof city !== 'string') {
-    return res.status(400).json({ error: 'city 필드가 필요합니다' });
-  }
+  if (!city || typeof city !== 'string') return res.status(400).json({ detail: 'city 필드가 필요합니다' });
   const userId = req.user?.id ?? null;
   await pool.execute(
-    `INSERT INTO search_history (city, user_id) VALUES (?, ?)
-     ON DUPLICATE KEY UPDATE searched_at = CURRENT_TIMESTAMP`,
+    'INSERT INTO search_history (city, user_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE searched_at = CURRENT_TIMESTAMP',
     [city.trim(), userId]
   );
   res.json({ success: true });
@@ -252,9 +444,7 @@ app.delete('/api/history', optionalAuth, asyncHandler(async (req, res) => {
 
 app.delete('/api/history/:id', optionalAuth, asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
-  if (!Number.isInteger(id) || id <= 0) {
-    return res.status(400).json({ error: '올바르지 않은 ID입니다' });
-  }
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ detail: '올바르지 않은 ID' });
   const userId = req.user?.id ?? null;
   await pool.execute('DELETE FROM search_history WHERE id = ? AND user_id <=> ?', [id, userId]);
   res.json({ success: true });
@@ -273,9 +463,7 @@ app.get('/api/favorites', optionalAuth, asyncHandler(async (req, res) => {
 
 app.post('/api/favorites', optionalAuth, asyncHandler(async (req, res) => {
   const { city, displayName } = req.body;
-  if (!city || !displayName || typeof city !== 'string' || typeof displayName !== 'string') {
-    return res.status(400).json({ error: 'city, displayName 필드가 필요합니다' });
-  }
+  if (!city || !displayName) return res.status(400).json({ detail: 'city, displayName 필드가 필요합니다' });
   const userId = req.user?.id ?? null;
   await pool.execute(
     'INSERT IGNORE INTO favorite_cities (city, display_name, user_id) VALUES (?, ?, ?)',
@@ -292,38 +480,24 @@ app.delete('/api/favorites', optionalAuth, asyncHandler(async (req, res) => {
 
 app.delete('/api/favorites/:id', optionalAuth, asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
-  if (!Number.isInteger(id) || id <= 0) {
-    return res.status(400).json({ error: '올바르지 않은 ID입니다' });
-  }
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ detail: '올바르지 않은 ID' });
   const userId = req.user?.id ?? null;
   await pool.execute('DELETE FROM favorite_cities WHERE id = ? AND user_id <=> ?', [id, userId]);
   res.json({ success: true });
 }));
 
-// ── AI 코디 추천 ───────────────────────────
+// ── AI 코디 추천 (스트리밍) ─────────────────
 
 app.post('/api/ai/outfit', asyncHandler(async (req, res) => {
   const { city, temperature, feelsLike, condition, description, humidity, windSpeed, precipProb, uvIndex } = req.body;
-
   if (!city || temperature === undefined) {
-    return res.status(400).json({ error: '날씨 데이터가 필요합니다' });
+    return res.status(400).json({ detail: '날씨 데이터가 필요합니다' });
   }
 
   const prompt = `현재 날씨 정보를 바탕으로 오늘 입기 좋은 코디를 추천해 주세요.
-
-날씨 정보:
-- 도시: ${city}
-- 기온: ${Math.round(temperature)}°C (체감 ${Math.round(feelsLike ?? temperature)}°C)
-- 날씨: ${description}
-- 습도: ${humidity}%
-- 풍속: ${windSpeed} m/s
-- 강수확률: ${precipProb ?? 0}%
-- 자외선 지수: ${uvIndex ?? 0}
-
-다음 형식으로 간결하게 답변해 주세요 (총 3~5문장):
-1. 날씨 한 줄 요약
-2. 추천 의상 (상의/하의/겉옷/신발 순으로 구체적으로)
-3. 오늘 날씨에 맞는 생활 팁 1가지`;
+날씨: ${city}, ${Math.round(temperature)}°C (체감 ${Math.round(feelsLike ?? temperature)}°C), ${description}
+습도: ${humidity}%, 풍속: ${windSpeed}m/s, 강수확률: ${precipProb ?? 0}%, UV: ${uvIndex ?? 0}
+3~5문장으로 추천해주세요: 날씨 요약 + 추천 의상 + 생활 팁`;
 
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.setHeader('Transfer-Encoding', 'chunked');
@@ -340,15 +514,14 @@ app.post('/api/ai/outfit', asyncHandler(async (req, res) => {
       res.write(chunk.delta.text);
     }
   }
-
   res.end();
 }));
 
-// ── 전역 에러 핸들러 ────────────────────────
+// ── 에러 핸들러 ────────────────────────────
 
 app.use((err, req, res, _next) => {
   console.error(err.message);
-  res.status(500).json({ error: '서버 오류가 발생했습니다' });
+  res.status(500).json({ detail: '서버 오류가 발생했습니다' });
 });
 
 // ── 서버 시작 ──────────────────────────────
@@ -356,12 +529,5 @@ app.use((err, req, res, _next) => {
 const PORT = Number(process.env.PORT) || 3001;
 
 initDB()
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`서버 실행 중: http://localhost:${PORT}`);
-    });
-  })
-  .catch(err => {
-    console.error('DB 연결 실패:', err.message);
-    process.exit(1);
-  });
+  .then(() => app.listen(PORT, () => console.log(`서버 실행 중: http://localhost:${PORT}`)))
+  .catch(err => { console.error('DB 연결 실패:', err.message); process.exit(1); });
