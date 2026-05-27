@@ -160,6 +160,29 @@ function issueToken(user) {
   return jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
 }
 
+// ── AI 크레딧 부족 시 규칙 기반 폴백 ──────────
+function fallbackRecommendation(temperature, weatherStatus, userAge, userStyle) {
+  let outfit = '';
+  if (temperature >= 28) {
+    outfit = '반소매 티셔츠와 반바지 또는 얇은 원피스를 추천합니다. 통풍이 잘 되는 린넨 소재가 좋아요.';
+  } else if (temperature >= 23) {
+    outfit = '얇은 반소매 티셔츠에 청바지나 면 소재 팬츠를 추천합니다.';
+  } else if (temperature >= 17) {
+    outfit = '긴소매 셔츠나 가디건을 걸치고, 청바지나 슬랙스를 매치해 보세요.';
+  } else if (temperature >= 11) {
+    outfit = '얇은 니트나 맨투맨에 청바지, 가벼운 재킷을 레이어드하세요.';
+  } else if (temperature >= 5) {
+    outfit = '두꺼운 니트나 코트를 착용하고 스카프도 챙기세요.';
+  } else {
+    outfit = '패딩이나 두꺼운 코트, 목도리와 장갑을 꼭 챙기세요.';
+  }
+  const weatherTip =
+    weatherStatus.includes('비') ? ' 우산을 꼭 챙기세요.' :
+    weatherStatus.includes('눈') ? ' 미끄럼 방지 신발을 신으세요.' :
+    weatherStatus.includes('뇌우') ? ' 외출을 자제하고 우산을 준비하세요.' : '';
+  return `오늘 ${weatherStatus} 날씨에 ${temperature}°C입니다. ${outfit}${weatherTip} ${userAge} ${userStyle} 스타일에 맞게 코디해 보세요!`;
+}
+
 // ── WMO 날씨 코드 → 한국어 ─────────────────
 function wmoToKorean(code) {
   if (code === 0) return '맑음';
@@ -319,14 +342,21 @@ app.get('/recommend-smart', optionalAuth, asyncHandler(async (req, res) => {
     if (rows.length) { userAge = rows[0].age; userStyle = rows[0].style; }
   }
 
-  const aiRes = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 300,
-    messages: [{
-      role: 'user',
-      content: `현재 날씨: ${cityName}, ${temperature}°C, ${weatherStatus}, 습도 ${humidity}%, 풍속 ${windSpeed}m/s\n사용자: ${userAge} ${userStyle} 스타일\n날씨에 맞는 오늘의 코디를 3~4문장으로 추천해주세요.`,
-    }],
-  });
+  let aiRecommendation;
+  try {
+    const aiRes = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 300,
+      messages: [{
+        role: 'user',
+        content: `현재 날씨: ${cityName}, ${temperature}°C, ${weatherStatus}, 습도 ${humidity}%, 풍속 ${windSpeed}m/s\n사용자: ${userAge} ${userStyle} 스타일\n날씨에 맞는 오늘의 코디를 3~4문장으로 추천해주세요.`,
+      }],
+    });
+    aiRecommendation = aiRes.content[0].text;
+  } catch (e) {
+    console.error('AI 추천 오류 (폴백 사용):', e.message);
+    aiRecommendation = fallbackRecommendation(temperature, weatherStatus, userAge, userStyle);
+  }
 
   const seed = Math.abs(Math.floor(temperature * 10)) % 1000;
   res.json({
@@ -335,7 +365,7 @@ app.get('/recommend-smart', optionalAuth, asyncHandler(async (req, res) => {
     weather_status: weatherStatus,
     humidity,
     wind_speed: windSpeed,
-    ai_recommendation: aiRes.content[0].text,
+    ai_recommendation: aiRecommendation,
     recommended_clothes: [
       { image_url: `https://picsum.photos/seed/outfit${seed}/600/800` },
     ],
